@@ -1,0 +1,16 @@
+[package]
+name = "advent-of-code-2022"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aoc-runner = "0.3.0"
+aoc-runner-derive = "0.3.0"
+arrayvec = "0.7.2"
+lazysort = "0.2.1"
+# some dependencies that will probably be used later
+#itertools = "0.10.3"
+#rustc-hash = "1.1.0"
+#pathfinding = "3.0.5"
