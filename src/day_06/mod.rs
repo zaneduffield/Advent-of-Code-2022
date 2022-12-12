@@ -16,14 +16,6 @@ where
 }
 
 impl LowerAsciiCharset {
-    fn bit(b: u8) -> u32 {
-        1 << (b - b'a')
-    }
-
-    fn add(&mut self, b: u8) {
-        self.0 |= Self::bit(b);
-    }
-
     fn count(&self) -> u32 {
         self.0.count_ones()
     }

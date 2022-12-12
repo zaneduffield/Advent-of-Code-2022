@@ -12,7 +12,7 @@ arrayvec = "0.7.2"
 lazysort = "0.2.1"
 itertools = "0.10.3"
 slab = "0.4.7"
-indoc = "*"
+indoc = "1.0.7"
 # some dependencies that will probably be used later
 #bytelines = "2.4.0"
 #rustc-hash = "1.1.0"
