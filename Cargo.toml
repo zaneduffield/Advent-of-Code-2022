@@ -15,6 +15,7 @@ slab = "0.4.7"
 indoc = "1.0.7"
 rustc-hash = "1.1.0"
 num = "0.4.0"
+rayon = "1.6"
 # some dependencies that will probably be used later
 #bytelines = "2.4.0"
 #pathfinding = "3.0.5"
