@@ -1,4 +1,4 @@
-use itertools::{Itertools, MinMaxResult};
+use itertools::Itertools;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Block {
@@ -22,10 +22,6 @@ pub struct Input {
 }
 
 impl Cave {
-    fn get(&self, (x, y): (usize, usize)) -> Option<&Block> {
-        self.data.get(y * self.width + x)
-    }
-
     fn get_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut Block> {
         self.data.get_mut(y * self.width + x)
     }
@@ -90,8 +86,8 @@ pub fn input_generator(input: &str) -> Input {
                 let (from_x, to_x) = (from.0.min(to.0), from.0.max(to.0));
                 (from_x..=to_x)
                     .map(|x| (x, from.1))
-            .map(convert_coords)
-            .for_each(&mut make_rock);
+                    .map(convert_coords)
+                    .for_each(&mut make_rock);
             };
         }
     }
