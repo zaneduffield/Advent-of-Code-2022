@@ -1,11 +1,10 @@
-use std::ops::{BitAnd, Not};
-
 use range_union_find::IntRangeUnionFind;
+use rayon::prelude::*;
 use regex::Regex;
 
 pub struct Sensor {
     pos: (i32, i32),
-    closest_beacon: (i32, i32),
+    dist: u32,
 }
 
 pub struct Input {
@@ -29,16 +28,15 @@ pub fn input_generator(input: &str) -> Input {
 
             let pos = (sx, sy);
             let closest_beacon = (bx, by);
+            let dist = hamming_dist(pos, closest_beacon);
 
-            Sensor {
-                pos,
-                closest_beacon,
-            }
+            Sensor { pos, dist }
         })
         .collect();
     Input { sensors }
 }
 
+#[inline(always)]
 fn hamming_dist(p1: (i32, i32), p2: (i32, i32)) -> u32 {
     p1.0.abs_diff(p2.0) + p1.1.abs_diff(p2.1)
 }
@@ -47,10 +45,9 @@ fn non_beacons_for_row(sensors: &[Sensor], row: i32) -> IntRangeUnionFind<i32> {
     sensors
         .iter()
         .filter_map(|s| {
-            let dist_to_beacon = hamming_dist(s.closest_beacon, s.pos);
             let dist_to_row = s.pos.1.abs_diff(row);
-            if dist_to_row <= dist_to_beacon {
-                let excess_dist = (dist_to_beacon - dist_to_row) as i32;
+            if dist_to_row <= s.dist {
+                let excess_dist = (s.dist - dist_to_row) as i32;
                 Some(s.pos.0 - excess_dist..=s.pos.0 + excess_dist)
             } else {
                 None
@@ -78,17 +75,26 @@ pub fn part_2(input: &Input) -> u64 {
 }
 
 pub fn _part_2(input: &Input, max_coord: i32) -> u64 {
-    let mut row_range = IntRangeUnionFind::<i32>::new();
-    row_range.insert_range(&(0..=max_coord)).unwrap();
-    let pos = (0..=max_coord)
-        .flat_map(|row| {
-            let range_union = row_range.bitand(&non_beacons_for_row(&input.sensors, row).not());
-            let ranges: Vec<_> = range_union.to_collection();
-            ranges.into_iter().flat_map(|r| r).map(move |x| (x, row))
+    (0..=max_coord)
+        .into_par_iter()
+        .find_map_any(|row| {
+            let mut col = 0;
+            while col <= max_coord {
+                let pos = (col, row);
+                match input
+                    .sensors
+                    .iter()
+                    .find(|s| hamming_dist(s.pos, pos) <= s.dist)
+                {
+                    None => return Some(4_000_000 * pos.0 as u64 + pos.1 as u64),
+                    Some(s) => {
+                        col = s.pos.0 + (s.dist - pos.1.abs_diff(s.pos.1)) as i32 + 1;
+                    }
+                }
+            }
+            None
         })
-        .next()
-        .unwrap();
-    4_000_000 * pos.0 as u64 + pos.1 as u64
+        .expect("No possible beacon position found")
 }
 
 #[cfg(test)]
