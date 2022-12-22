@@ -1,4 +1,5 @@
-use itertools::Itertools;
+use std::ops::{BitAnd, Not};
+
 use range_union_find::IntRangeUnionFind;
 use regex::Regex;
 
@@ -9,7 +10,6 @@ pub struct Sensor {
 
 pub struct Input {
     sensors: Vec<Sensor>,
-    row: i32,
 }
 
 #[aoc_generator(day15)]
@@ -36,32 +36,36 @@ pub fn input_generator(input: &str) -> Input {
             }
         })
         .collect();
-    Input {
-        sensors,
-        row: 2000000,
-    }
+    Input { sensors }
 }
 
 fn hamming_dist(p1: (i32, i32), p2: (i32, i32)) -> u32 {
     p1.0.abs_diff(p2.0) + p1.1.abs_diff(p2.1)
 }
 
-#[aoc(day15, part1)]
-pub fn part_1(input: &Input) -> usize {
-    input
-        .sensors
+fn non_beacons_for_row(sensors: &[Sensor], row: i32) -> IntRangeUnionFind<i32> {
+    sensors
         .iter()
         .filter_map(|s| {
             let dist_to_beacon = hamming_dist(s.closest_beacon, s.pos);
-            let dist_to_row = s.pos.1.abs_diff(input.row);
+            let dist_to_row = s.pos.1.abs_diff(row);
             if dist_to_row <= dist_to_beacon {
                 let excess_dist = (dist_to_beacon - dist_to_row) as i32;
-                Some(s.pos.0 - excess_dist..s.pos.0 + excess_dist)
+                Some(s.pos.0 - excess_dist..=s.pos.0 + excess_dist)
             } else {
                 None
             }
         })
-        .collect::<IntRangeUnionFind<_>>()
+        .collect::<IntRangeUnionFind<i32>>()
+}
+
+#[aoc(day15, part1)]
+pub fn part_1(input: &Input) -> usize {
+    _part_1(input, 2_000_000)
+}
+
+pub fn _part_1(input: &Input, row: i32) -> usize {
+    non_beacons_for_row(&input.sensors, row)
         .to_collection::<Vec<_>>()
         .iter()
         .map(|r| (r.end() - r.start()) as usize)
@@ -69,8 +73,22 @@ pub fn part_1(input: &Input) -> usize {
 }
 
 #[aoc(day15, part2)]
-pub fn part_2(input: &Input) -> usize {
-    0
+pub fn part_2(input: &Input) -> u64 {
+    _part_2(input, 4_000_000)
+}
+
+pub fn _part_2(input: &Input, max_coord: i32) -> u64 {
+    let mut row_range = IntRangeUnionFind::<i32>::new();
+    row_range.insert_range(&(0..=max_coord)).unwrap();
+    let pos = (0..=max_coord)
+        .flat_map(|row| {
+            let range_union = row_range.bitand(&non_beacons_for_row(&input.sensors, row).not());
+            let ranges: Vec<_> = range_union.to_collection();
+            ranges.into_iter().flat_map(|r| r).map(move |x| (x, row))
+        })
+        .next()
+        .unwrap();
+    4_000_000 * pos.0 as u64 + pos.1 as u64
 }
 
 #[cfg(test)]
@@ -80,7 +98,7 @@ mod tests {
 
     #[test]
     fn test() {
-        let mut input = input_generator(indoc! {
+        let input = input_generator(indoc! {
             "
             Sensor at x=2, y=18: closest beacon is at x=-2, y=15
             Sensor at x=9, y=16: closest beacon is at x=10, y=16
@@ -98,8 +116,7 @@ mod tests {
             Sensor at x=20, y=1: closest beacon is at x=15, y=3
             "
         });
-        input.row = 10;
-        assert_eq!(part_1(&input), 26);
-        // assert_eq!(part_2(&input), 0);
+        assert_eq!(_part_1(&input, 10), 26);
+        assert_eq!(_part_2(&input, 20), 56_000_011);
     }
 }
