@@ -63,16 +63,6 @@ pub fn input_generator(input: &str) -> Input {
 
     let min_x = SEED_X_POS - max_y;
     let max_x = SEED_X_POS + max_y;
-    // let (min_x, max_x) = match rock_paths
-    //     .iter()
-    //     .flat_map(|line| line.iter())
-    //     .map(|p| p.0)
-    //     .minmax()
-    // {
-    //     MinMaxResult::NoElements => panic!("at least one rock line is expected"),
-    //     MinMaxResult::OneElement(x) => (x, x),
-    //     MinMaxResult::MinMax(min, max) => (min, max),
-    // };
 
     let (width, height) = (max_x - min_x + 1, max_y - min_y + 1);
     let size = width * height;
@@ -100,8 +90,8 @@ pub fn input_generator(input: &str) -> Input {
                 let (from_x, to_x) = (from.0.min(to.0), from.0.max(to.0));
                 (from_x..=to_x)
                     .map(|x| (x, from.1))
-                    .map(convert_coords)
-                    .for_each(&mut make_rock);
+            .map(convert_coords)
+            .for_each(&mut make_rock);
             };
         }
     }
@@ -115,35 +105,29 @@ pub fn input_generator(input: &str) -> Input {
 impl Input {
     fn fall_to(&mut self, p: &mut (usize, usize), offset: (isize, isize)) -> bool {
         let old_pos = *p;
-        let new_pos = match (
-            p.0.checked_add_signed(offset.0),
-            p.1.checked_add_signed(offset.1),
-        ) {
-            (Some(x), Some(y)) => (x, y),
-            _ => {
+        p.0.checked_add_signed(offset.0)
+            .zip(p.1.checked_add_signed(offset.1))
+            .and_then(|new_pos| match self.cave.get_mut(new_pos)? {
+                x if *x == Block::Air => {
+                    *x = Block::Sand;
+                    *p = new_pos;
+                    Some(true)
+                }
+                _ => Some(false),
+            })
+            .map(|moved| {
+                if moved {
+                    if let Some(b) = self.cave.get_mut(old_pos) {
+                        *b = Block::Air;
+                    }
+                }
+                moved
+            })
+            .or_else(|| {
                 self.cave.full = true;
-                return false;
-            }
-        };
-
-        let moved = match self.cave.get_mut(new_pos) {
-            Some(x) if *x == Block::Air => {
-                *x = Block::Sand;
-                *p = new_pos;
-                true
-            }
-            Some(_) => false,
-            None => {
-                self.cave.full = true;
-                false
-            }
-        };
-        if moved {
-            if let Some(b) = self.cave.get_mut(old_pos) {
-                *b = Block::Air;
-            }
-        }
-        moved
+                Some(false)
+            })
+            .unwrap_or(false)
     }
 
     fn fall(&mut self, p: &mut (usize, usize)) -> bool {
