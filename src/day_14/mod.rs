@@ -31,6 +31,9 @@ impl Cave {
     }
 }
 
+const FLOOR_BUF: usize = 2;
+const SEED_X_POS: usize = 500;
+
 #[aoc_generator(day14)]
 pub fn input_generator(input: &str) -> Input {
     let rock_paths: Vec<Vec<(usize, usize)>> = input
@@ -49,24 +52,27 @@ pub fn input_generator(input: &str) -> Input {
         })
         .collect();
 
-    let (min_x, max_x) = match rock_paths
-        .iter()
-        .flat_map(|line| line.iter())
-        .map(|p| p.0)
-        .minmax()
-    {
-        MinMaxResult::NoElements => panic!("at least one rock line is expected"),
-        MinMaxResult::OneElement(x) => (x, x),
-        MinMaxResult::MinMax(min, max) => (min, max),
-    };
-
     let max_y = rock_paths
         .iter()
         .flat_map(|line| line.iter())
         .map(|p| p.1)
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        + FLOOR_BUF;
     let min_y = 0;
+
+    let min_x = SEED_X_POS - max_y;
+    let max_x = SEED_X_POS + max_y;
+    // let (min_x, max_x) = match rock_paths
+    //     .iter()
+    //     .flat_map(|line| line.iter())
+    //     .map(|p| p.0)
+    //     .minmax()
+    // {
+    //     MinMaxResult::NoElements => panic!("at least one rock line is expected"),
+    //     MinMaxResult::OneElement(x) => (x, x),
+    //     MinMaxResult::MinMax(min, max) => (min, max),
+    // };
 
     let (width, height) = (max_x - min_x + 1, max_y - min_y + 1);
     let size = width * height;
@@ -102,28 +108,24 @@ pub fn input_generator(input: &str) -> Input {
 
     Input {
         cave,
-        seed_pos: (500 - min_x, 0),
+        seed_pos: (SEED_X_POS - min_x, 0),
     }
 }
 
 impl Input {
     fn fall_to(&mut self, p: &mut (usize, usize), offset: (isize, isize)) -> bool {
         let old_pos = *p;
-        let new_x = match p.0.checked_add_signed(offset.0) {
-            Some(x) => x,
-            None => {
+        let new_pos = match (
+            p.0.checked_add_signed(offset.0),
+            p.1.checked_add_signed(offset.1),
+        ) {
+            (Some(x), Some(y)) => (x, y),
+            _ => {
                 self.cave.full = true;
                 return false;
             }
         };
-        let new_y = match p.1.checked_add_signed(offset.1) {
-            Some(y) => y,
-            None => {
-                self.cave.full = true;
-                return false;
-            }
-        };
-        let new_pos = (new_x, new_y);
+
         let moved = match self.cave.get_mut(new_pos) {
             Some(x) if *x == Block::Air => {
                 *x = Block::Sand;
@@ -150,34 +152,39 @@ impl Input {
 
     fn seed(&mut self) {
         let mut pos = self.seed_pos;
-        if self.cave.get(pos) == Some(&Block::Sand) {
-            self.cave.full = true;
-            return;
+        match self.cave.get_mut(pos) {
+            Some(x) if x == &Block::Air => *x = Block::Sand,
+            _ => {
+                self.cave.full = true;
+                return;
+            }
         }
 
-        while self.fall(&mut pos) {
-            // do nothing
-        }
+        while self.fall(&mut pos) {}
+    }
+
+    fn flood(&mut self) -> usize {
+        (0..)
+            .take_while(|_| {
+                self.seed();
+                !self.cave.full
+            })
+            .count()
     }
 }
 
 #[aoc(day14, part1)]
-pub fn part_1(input: &Input) -> u32 {
-    let mut input = input.clone();
-    let mut count = 0;
-    loop {
-        input.seed();
-        if input.cave.full {
-            break;
-        }
-        count += 1;
-    }
-    count
+pub fn part_1(input: &Input) -> usize {
+    input.clone().flood()
 }
 
 #[aoc(day14, part2)]
-pub fn part_2(input: &Input) -> u32 {
-    0
+pub fn part_2(input: &Input) -> usize {
+    let mut input = input.clone();
+    for x in 0..input.cave.width {
+        *input.cave.get_mut((x, input.cave.height - 1)).unwrap() = Block::Rock;
+    }
+    input.clone().flood()
 }
 
 #[cfg(test)]
@@ -194,6 +201,6 @@ mod tests {
             "
         });
         assert_eq!(part_1(&input), 24);
-        // assert_eq!(part_2(&input), );
+        assert_eq!(part_2(&input), 93);
     }
 }
