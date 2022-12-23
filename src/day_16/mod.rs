@@ -31,7 +31,7 @@ pub struct Valve {
 
 pub struct Input {
     valves: Vec<Option<Valve>>,
-    total_flow: u64,
+    total_flow: u32,
 }
 
 impl Valve {
@@ -69,7 +69,7 @@ pub fn input_generator(input: &str) -> Input {
     for line in input.lines() {
         let valve = Valve::from(line);
         let id = valve.id;
-        total_flow += valve.flow_rate as u64;
+        total_flow += valve.flow_rate as u32;
         valves[id] = Some(valve);
     }
     Input { valves, total_flow }
@@ -80,16 +80,16 @@ const TOTAL_MINS: u8 = 30;
 #[derive(Clone, PartialEq, Eq)]
 struct ValveState {
     elapsed_mins: u8,
-    released_pressure: u64,
+    released_pressure: u32,
     current_flow: u32,
     open_valves: SetUsize,
     current_valve_id: ValveId,
-    heuristic: u64,
+    heuristic: u32,
 }
 
 impl ValveState {
-    fn heuristic(&self, input: &Input) -> u64 {
-        self.released_pressure + (TOTAL_MINS - self.elapsed_mins) as u64 * input.total_flow
+    fn heuristic(&self, input: &Input) -> u32 {
+        self.released_pressure + (TOTAL_MINS - self.elapsed_mins) as u32 * input.total_flow
     }
 
     fn nbours(&self, input: &Input, nbs: &mut Vec<ValveState>) {
@@ -98,9 +98,9 @@ impl ValveState {
 
         let mut next = self.clone();
         next.elapsed_mins += 1;
-        next.released_pressure += next.current_flow as u64;
+        next.released_pressure += next.current_flow as u32;
 
-        if !self.open_valves.contains(self.current_valve_id) {
+        if current_valve.flow_rate > 0 && !self.open_valves.contains(self.current_valve_id) {
             let mut nb = next.clone();
             nb.open_valves.insert(self.current_valve_id);
             nb.current_flow += current_valve.flow_rate as u32;
@@ -122,9 +122,11 @@ impl Hash for ValveState {
         self.elapsed_mins.hash(state);
         self.released_pressure.hash(state);
         self.current_flow.hash(state);
-        self.open_valves.iter().sorted().for_each(|v| v.hash(state));
+        // needs to be in a deterministic order, but it already is
+        self.open_valves.iter().for_each(|v| v.hash(state));
         self.current_valve_id.hash(state);
-        self.heuristic.hash(state);
+        // derived property
+        // self.heuristic.hash(state);
     }
 }
 
@@ -141,7 +143,7 @@ impl Ord for ValveState {
 }
 
 impl Input {
-    fn astar_min_cost(&self, start: ValveState) -> Option<u64> {
+    fn astar_min_cost(&self, start: ValveState) -> Option<u32> {
         let mut max_pressures = FxHashMap::default();
         let mut heap = BinaryHeap::new();
         heap.push(start);
@@ -166,7 +168,7 @@ impl Input {
 }
 
 #[aoc(day16, part1)]
-pub fn part_1(input: &Input) -> u64 {
+pub fn part_1(input: &Input) -> u32 {
     input
         .astar_min_cost(ValveState {
             elapsed_mins: 0,
