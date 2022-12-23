@@ -21,7 +21,7 @@ use tinyset::SetUsize;
 
 use crate::day_13::Val;
 
-pub type ValveId = usize;
+pub type ValveId = u8;
 
 pub struct Valve {
     id: ValveId,
@@ -31,28 +31,32 @@ pub struct Valve {
 
 pub struct Input {
     valves: Vec<Option<Valve>>,
+    start_id: ValveId,
     total_flow: u32,
 }
 
-impl Valve {
-    fn id_from_str(s: &str) -> ValveId {
-        s.chars()
-            .take(2)
-            .fold(0, |sum, c| sum * 26 + (c as u8 - b'A') as ValveId)
-    }
+fn str_to_id(s: &str, id_map: &mut FxHashMap<String, ValveId>, max_id: &mut ValveId) -> ValveId {
+    *id_map.entry(s.to_string()).or_insert_with(|| {
+        let id = *max_id;
+        *max_id += 1;
+        id
+    })
 }
 
-impl From<&str> for Valve {
-    fn from(value: &str) -> Self {
+impl Valve {
+    fn new(value: &str, id_map: &mut FxHashMap<String, ValveId>, max_id: &mut ValveId) -> Self {
         lazy_static! {
             static ref RE: Regex = Regex::new(r"Valve ([A-Z]{2}) has flow rate=(\d+); tunnels? leads? to valves? ((?:[A-Z]{2}(?:, )?)+)").unwrap();
         }
         let captures = RE
             .captures(value)
             .expect(&format!("line didn't match re: {value}"));
-        let id = Self::id_from_str(&captures[1]);
+        let id = str_to_id(&captures[1], id_map, max_id);
         let flow_rate = captures[2].parse().unwrap();
-        let nbours = captures[3].split(", ").map(Self::id_from_str).collect();
+        let nbours = captures[3]
+            .split(", ")
+            .map(|s| str_to_id(s, id_map, max_id))
+            .collect();
 
         Self {
             id,
@@ -66,13 +70,40 @@ impl From<&str> for Valve {
 pub fn input_generator(input: &str) -> Input {
     let mut valves = (0..26 * 26).map(|_| None).collect_vec();
     let mut total_flow = 0;
+    let mut id_map = FxHashMap::default();
+    let mut max_id = 0;
     for line in input.lines() {
-        let valve = Valve::from(line);
+        let valve = Valve::new(line, &mut id_map, &mut max_id);
         let id = valve.id;
         total_flow += valve.flow_rate as u32;
-        valves[id] = Some(valve);
+        valves[id as usize] = Some(valve);
     }
-    Input { valves, total_flow }
+    let start_id = str_to_id(&"AA", &mut id_map, &mut max_id);
+    Input { valves, total_flow, start_id }
+}
+
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
+struct Set64(u64);
+
+impl Set64 {
+    fn new() -> Self {
+        Self(0)
+    }
+
+    #[inline(always)]
+    fn to_bit(u: u8) -> u64 {
+        1 << u
+    }
+
+    #[inline(always)]
+    fn add(&mut self, u: u8) {
+        self.0 |= Self::to_bit(u);
+    }
+
+    #[inline(always)]
+    fn contains(&self, u: u8) -> bool {
+        self.0 & Self::to_bit(u) != 0
+    }
 }
 
 const TOTAL_MINS: u8 = 30;
@@ -82,7 +113,7 @@ struct ValveState {
     elapsed_mins: u8,
     released_pressure: u32,
     current_flow: u32,
-    open_valves: SetUsize,
+    open_valves: Set64,
     current_valve_id: ValveId,
     heuristic: u32,
 }
@@ -93,7 +124,9 @@ impl ValveState {
     }
 
     fn nbours(&self, input: &Input, nbs: &mut Vec<ValveState>) {
-        let current_valve = input.valves[self.current_valve_id].as_ref().unwrap();
+        let current_valve = input.valves[self.current_valve_id as usize]
+            .as_ref()
+            .unwrap();
         let valve_nbours = &current_valve.nbours;
 
         let mut next = self.clone();
@@ -102,7 +135,7 @@ impl ValveState {
 
         if current_valve.flow_rate > 0 && !self.open_valves.contains(self.current_valve_id) {
             let mut nb = next.clone();
-            nb.open_valves.insert(self.current_valve_id);
+            nb.open_valves.add(self.current_valve_id);
             nb.current_flow += current_valve.flow_rate as u32;
             nb.heuristic = nb.heuristic(input);
             nbs.push(nb)
@@ -123,7 +156,7 @@ impl Hash for ValveState {
         self.released_pressure.hash(state);
         self.current_flow.hash(state);
         // needs to be in a deterministic order, but it already is
-        self.open_valves.iter().for_each(|v| v.hash(state));
+        self.open_valves.hash(state);
         self.current_valve_id.hash(state);
         // derived property
         // self.heuristic.hash(state);
@@ -174,8 +207,8 @@ pub fn part_1(input: &Input) -> u32 {
             elapsed_mins: 0,
             released_pressure: 0,
             current_flow: 0,
-            open_valves: SetUsize::new(),
-            current_valve_id: Valve::id_from_str(&"AA"),
+            open_valves: Set64::new(),
+            current_valve_id: input.start_id,
             heuristic: 0,
         })
         .expect("no solution found!")
