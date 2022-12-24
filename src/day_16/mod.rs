@@ -7,19 +7,14 @@
 
 use std::{
     cmp::{Ordering, Reverse},
-    collections::{BTreeMap, BinaryHeap, VecDeque},
-    str::FromStr,
+    collections::{BinaryHeap, VecDeque},
 };
 
 use core::hash::Hash;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use regex::{Match, Regex};
+use regex::Regex;
 use rustc_hash::{FxHashMap, FxHashSet};
-use slab::Slab;
-use tinyset::SetUsize;
-
-use crate::day_13::Val;
 
 pub type ValveId = u8;
 
@@ -32,7 +27,6 @@ pub struct Valve {
 pub struct Input {
     valves: Vec<Valve>,
     start_id: ValveId,
-    total_flow: u32,
 }
 
 fn str_to_id(s: &str, id_map: &mut FxHashMap<String, ValveId>, max_id: &mut ValveId) -> ValveId {
@@ -69,19 +63,16 @@ impl Valve {
 #[aoc_generator(day16)]
 pub fn input_generator(input: &str) -> Input {
     let mut valves = (0..26 * 26).map(|_| None).collect_vec();
-    let mut total_flow = 0;
     let mut id_map = FxHashMap::default();
     let mut max_id = 0;
     for line in input.lines() {
         let valve = Valve::new(line, &mut id_map, &mut max_id);
         let id = valve.id;
-        total_flow += valve.flow_rate as u32;
         valves[id as usize] = Some(valve);
     }
     let start_id = str_to_id(&"AA", &mut id_map, &mut max_id);
     Input {
         valves: valves.into_iter().flatten().collect(),
-        total_flow,
         start_id,
     }
 }
@@ -109,8 +100,6 @@ impl Set64 {
         self.0 & Self::to_bit(u) != 0
     }
 }
-
-const TOTAL_MINS: u8 = 30;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct ValveState {
@@ -270,12 +259,12 @@ pub fn part_2(input: &Input) -> u32 {
             let el_valve = &input.valves[el_pos as usize];
             let me_can_open = !open_valves.contains(me_pos) && me_valve.flow_rate > 0;
             // let's always assume that 'me' will open the valve when we both can,
-            // the situation is symmetric so it should affect the solution
+            // the situation is symmetric so it shouldn't affect the solution
             let el_can_open =
                 !open_valves.contains(el_pos) && el_valve.flow_rate > 0 && me_pos != el_pos;
 
             if me_can_open && el_can_open {
-                // we both open
+                // we both open different valves
                 let new_open_set = open_valves.add(me_pos).add(el_pos);
                 if visited.insert((new_open_set, me_pos, el_pos, next_pressure)) {
                     let new_flow = current_flow + me_valve.flow_rate + el_valve.flow_rate;
@@ -283,9 +272,9 @@ pub fn part_2(input: &Input) -> u32 {
                         me_pos,
                         el_pos,
                         ValveState {
+                            open_valves: new_open_set,
                             released_pressure: next_pressure,
                             current_flow: new_flow,
-                            ..state
                         },
                     ));
                 }
@@ -301,9 +290,9 @@ pub fn part_2(input: &Input) -> u32 {
                             me_pos,
                             el_new_pos,
                             ValveState {
+                                open_valves: new_open_set,
                                 released_pressure: next_pressure,
                                 current_flow: new_flow,
-                                ..state
                             },
                         ));
                     }
@@ -320,9 +309,9 @@ pub fn part_2(input: &Input) -> u32 {
                             me_new_pos,
                             el_pos,
                             ValveState {
+                                open_valves: new_open_set,
                                 released_pressure: next_pressure,
                                 current_flow: new_flow,
-                                ..state
                             },
                         ));
                     }
