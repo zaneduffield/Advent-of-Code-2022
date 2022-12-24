@@ -43,21 +43,21 @@ macro_rules! run_day {
 
 pub fn main() {
     let instant = Instant::now();
-    run_day_with_generator!(day_01, "1");
-    run_day_with_generator!(day_02, "2");
-    run_day_with_generator!(day_03, "3");
-    run_day_with_generator!(day_04, "4");
-    run_day_with_generator!(day_05, "5");
-    run_day!(day_06, "6");
-    run_day_with_generator!(day_07, "7");
-    run_day_with_generator!(day_08, "8");
-    run_day!(day_09, "9");
-    run_day_with_generator!(day_10, "10");
-    run_day_with_generator!(day_11, "11");
-    run_day_with_generator!(day_12, "12");
-    run_day_with_generator!(day_13, "13");
-    run_day_with_generator!(day_14, "14");
-    run_day_with_generator!(day_15, "15");
+    // run_day_with_generator!(day_01, "1");
+    // run_day_with_generator!(day_02, "2");
+    // run_day_with_generator!(day_03, "3");
+    // run_day_with_generator!(day_04, "4");
+    // run_day_with_generator!(day_05, "5");
+    // run_day!(day_06, "6");
+    // run_day_with_generator!(day_07, "7");
+    // run_day_with_generator!(day_08, "8");
+    // run_day!(day_09, "9");
+    // run_day_with_generator!(day_10, "10");
+    // run_day_with_generator!(day_11, "11");
+    // run_day_with_generator!(day_12, "12");
+    // run_day_with_generator!(day_13, "13");
+    // run_day_with_generator!(day_14, "14");
+    // run_day_with_generator!(day_15, "15");
     run_day_with_generator!(day_16, "16");
 
     println!("done in {:?}", instant.elapsed());
