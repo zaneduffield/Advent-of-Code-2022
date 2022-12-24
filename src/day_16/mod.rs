@@ -7,7 +7,8 @@
 // the end that was very similar - start there.
 
 use std::{
-    collections::{BTreeMap, BinaryHeap},
+    cmp::{Ordering, Reverse},
+    collections::{BTreeMap, BinaryHeap, VecDeque},
     str::FromStr,
 };
 
@@ -15,7 +16,7 @@ use core::hash::Hash;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::{Match, Regex};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use slab::Slab;
 use tinyset::SetUsize;
 
@@ -30,7 +31,7 @@ pub struct Valve {
 }
 
 pub struct Input {
-    valves: Vec<Option<Valve>>,
+    valves: Vec<Valve>,
     start_id: ValveId,
     total_flow: u32,
 }
@@ -79,7 +80,11 @@ pub fn input_generator(input: &str) -> Input {
         valves[id as usize] = Some(valve);
     }
     let start_id = str_to_id(&"AA", &mut id_map, &mut max_id);
-    Input { valves, total_flow, start_id }
+    Input {
+        valves: valves.into_iter().flatten().collect(),
+        total_flow,
+        start_id,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -108,110 +113,102 @@ impl Set64 {
 
 const TOTAL_MINS: u8 = 30;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct ValveState {
-    elapsed_mins: u8,
     released_pressure: u32,
-    current_flow: u32,
+    current_flow: u8,
     open_valves: Set64,
     current_valve_id: ValveId,
-    heuristic: u32,
 }
 
-impl ValveState {
-    fn heuristic(&self, input: &Input) -> u32 {
-        self.released_pressure + (TOTAL_MINS - self.elapsed_mins) as u32 * input.total_flow
-    }
+const INIT_PRESSURE: u32 = 0;
+const INIT_FLOW: u8 = 0;
 
-    fn nbours(&self, input: &Input, nbs: &mut Vec<ValveState>) {
-        let current_valve = input.valves[self.current_valve_id as usize]
-            .as_ref()
-            .unwrap();
-        let valve_nbours = &current_valve.nbours;
+#[aoc(day16, part1)]
+pub fn part_1(input: &Input) -> u32 {
+    // based off https://github.com/SvetlinZarev/advent-of-code/blob/main/2022/aoc-day-16/src/p1v2.rs
+    const ROUNDS: u32 = 30;
 
-        let mut next = self.clone();
-        next.elapsed_mins += 1;
-        next.released_pressure += next.current_flow as u32;
+    // The number of most-promising positions to keep exploring.
+    // adjust for speed & correctness
+    const BEAM_WIDTH: usize = 1000;
 
-        if current_valve.flow_rate > 0 && !self.open_valves.contains(self.current_valve_id) {
-            let mut nb = next.clone();
-            nb.open_valves.add(self.current_valve_id);
-            nb.current_flow += current_valve.flow_rate as u32;
-            nb.heuristic = nb.heuristic(input);
-            nbs.push(nb)
-        }
+    let mut queue = VecDeque::new();
+    queue.push_back(ValveState {
+        released_pressure: INIT_PRESSURE,
+        current_flow: INIT_FLOW,
+        open_valves: Set64::new(),
+        current_valve_id: input.start_id,
+    });
 
-        for v in valve_nbours {
-            let mut nb = next.clone();
-            nb.current_valve_id = *v;
-            nb.heuristic = nb.heuristic(input);
-            nbs.push(nb);
-        }
-    }
-}
+    let mut visited = FxHashSet::default();
+    visited.insert((Set64::new(), input.start_id, INIT_PRESSURE));
 
-impl Hash for ValveState {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.elapsed_mins.hash(state);
-        self.released_pressure.hash(state);
-        self.current_flow.hash(state);
-        // needs to be in a deterministic order, but it already is
-        self.open_valves.hash(state);
-        self.current_valve_id.hash(state);
-        // derived property
-        // self.heuristic.hash(state);
-    }
-}
+    let mut beam = BinaryHeap::new();
 
-impl PartialOrd for ValveState {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.heuristic.cmp(&other.heuristic))
-    }
-}
+    let mut most_pressure = 0;
+    for round in 0..ROUNDS {
+        for _ in 0..queue.len() {
+            let state = queue.pop_front().unwrap();
+            let ValveState {
+                released_pressure,
+                current_flow,
+                open_valves,
+                current_valve_id,
+            } = state;
 
-impl Ord for ValveState {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.heuristic.cmp(&other.heuristic)
-    }
-}
+            let next_pressure = released_pressure + current_flow as u32;
 
-impl Input {
-    fn astar_min_cost(&self, start: ValveState) -> Option<u32> {
-        let mut max_pressures = FxHashMap::default();
-        let mut heap = BinaryHeap::new();
-        heap.push(start);
-
-        let mut nbours = vec![];
-        loop {
-            let next = heap.pop()?;
-            if next.elapsed_mins == TOTAL_MINS {
-                return Some(next.released_pressure);
+            if round == ROUNDS - 1 {
+                most_pressure = most_pressure.max(next_pressure);
+                continue;
             }
-            nbours.clear();
-            next.nbours(self, &mut nbours);
-            for nb in nbours.iter() {
-                let best = max_pressures.get(nb);
-                if best.is_none() || Some(&nb.released_pressure) > best {
-                    max_pressures.insert(nb.clone(), nb.released_pressure);
-                    heap.push(nb.clone());
+
+            if beam.len() < BEAM_WIDTH {
+                beam.push(Reverse(next_pressure))
+            } else {
+                let smallest = beam.peek().unwrap().0;
+                match smallest.cmp(&next_pressure) {
+                    Ordering::Less => {
+                        beam.pop();
+                        beam.push(Reverse(next_pressure));
+                    }
+                    // skip because it's unlikely to catch up and become optimal
+                    Ordering::Greater => continue,
+                    _ => {}
+                }
+            }
+
+            let cur_valve = &input.valves[current_valve_id as usize];
+            if !open_valves.contains(current_valve_id) && cur_valve.flow_rate > 0 {
+                let mut new_open_set = open_valves.clone();
+                new_open_set.add(current_valve_id);
+
+                if visited.insert((new_open_set, current_valve_id, next_pressure)) {
+                    let new_state = ValveState {
+                        current_flow: current_flow + cur_valve.flow_rate,
+                        released_pressure: next_pressure,
+                        open_valves: new_open_set,
+                        ..state
+                    };
+                    queue.push_back(new_state)
+                }
+            }
+
+            for &nb in &cur_valve.nbours {
+                if visited.insert((open_valves, nb, next_pressure)) {
+                    let new_state = ValveState {
+                        current_valve_id: nb,
+                        released_pressure: next_pressure,
+                        ..state
+                    };
+                    queue.push_back(new_state);
                 }
             }
         }
     }
-}
 
-#[aoc(day16, part1)]
-pub fn part_1(input: &Input) -> u32 {
-    input
-        .astar_min_cost(ValveState {
-            elapsed_mins: 0,
-            released_pressure: 0,
-            current_flow: 0,
-            open_valves: Set64::new(),
-            current_valve_id: input.start_id,
-            heuristic: 0,
-        })
-        .expect("no solution found!")
+    most_pressure
 }
 
 #[aoc(day16, part2)]
