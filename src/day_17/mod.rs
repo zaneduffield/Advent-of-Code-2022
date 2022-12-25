@@ -203,13 +203,12 @@ pub fn part_2(input: &Input) -> usize {
 
                     let remaining_shapes = SHAPES_TO_FALL - shape_no;
                     let shapes_in_cycle = shape_no - last_first_shape_no;
-                    let remaining_repetitions = remaining_shapes / shapes_in_cycle;
-                    let excess_shapes = remaining_shapes % shapes_in_cycle;
+                    let cycles_to_skip = remaining_shapes / shapes_in_cycle;
 
-                    let repetition_height = cave.height - last_height;
+                    let cycle_height = cave.height - last_height;
 
-                    height_boost += remaining_repetitions as isize * repetition_height;
-                    shape_no = SHAPES_TO_FALL - excess_shapes;
+                    height_boost += cycles_to_skip as isize * cycle_height;
+                    shape_no += cycles_to_skip * shapes_in_cycle + 1;
                 }
                 Entry::Vacant(e) => {
                     e.insert((cave.height, shape_no));
