@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map::OccupiedEntry, hash_map::Entry},
+    collections::{btree_map::OccupiedEntry, hash_map::Entry, BTreeSet},
     hash::{Hash, Hasher},
 };
 
@@ -21,6 +21,7 @@ pub struct Shape {
 #[aoc_generator(day17)]
 pub fn input_generator(input: &str) -> Input {
     input
+        .trim()
         .chars()
         .map(|c| match c {
             '<' => Wind::Left,
@@ -142,6 +143,18 @@ impl<'a> Cave<'a> {
         self.height = self.height.max(shape_top);
         self.place_at(shape, pos);
     }
+
+    fn hash_top_rows(&self) -> u64 {
+        // it would be more efficient to find the hash of just edge of the 'pseudo-floor'
+        // but it also would be harder to implement than a simple flood.
+        let mut hash_state = FxHasher::default();
+        for y in 1..=50 {
+            for x in 0..self.width {
+                self.get((x, self.height - y)).hash(&mut hash_state);
+            }
+        }
+        hash_state.finish()
+    }
 }
 
 #[aoc(day17, part1)]
@@ -163,57 +176,43 @@ pub fn part_2(input: &Input) -> usize {
     let shapes = shapes();
 
     let mut first_row_by_state = FxHashMap::default();
-    let mut pseudo_first_shape_no = 0;
-    let mut pseudo_first_row = 0;
-    let mut pseudo_cave_hash = FxHasher::default();
+    // let mut pseudo_first_shape_no = 0;
+    // let mut pseudo_first_row = 0;
+    // let mut pseudo_cave_hash = FxHasher::default();
 
     let mut height_boost = 0;
+    let mut found_rep = false;
 
     let mut shape_no = 0;
     while shape_no < SHAPES_TO_FALL {
         shape_no += 1;
         let shape_idx = shape_no % shapes.len();
 
-        let shape = &shapes[shape_idx % shapes.len()];
+        let shape = &shapes[shape_idx];
         cave.fall(shape);
 
-        let mut floor_found = false;
-        let shape_bottom = cave.height - shape.height;
-        for y in shape_bottom..cave.height {
-            if (0..cave.width).all(|x| {
-                let b = cave.get((x, y));
-                if floor_found {
-                    b.hash(&mut pseudo_cave_hash)
-                }
-                b == Block::Filled
-            }) {
-                floor_found = true;
-                pseudo_first_shape_no = shape_no;
-                pseudo_first_row = y;
-                pseudo_cave_hash = FxHasher::default();
-            }
-        }
-
-        if floor_found {
-            let current_state = (pseudo_cave_hash.finish(), cave.wind_idx, shape_idx);
+        if !found_rep {
+            // let shape_bottom = cave.height - shape.height;
+            let current_state = (cave.hash_top_rows(), cave.wind_idx, shape_idx);
             match first_row_by_state.entry(current_state) {
                 Entry::Occupied(e) => {
                     println!("repetition found!");
+                    found_rep = true;
                     // Bingo! Now we can just replay from the pseudo_first_row.
-                    let (last_first_row, last_first_shape_no) = *e.get();
+                    let (last_height, last_first_shape_no) = *e.get();
 
                     let remaining_shapes = SHAPES_TO_FALL - shape_no;
-                    let shapes_in_cycle = pseudo_first_shape_no - last_first_shape_no;
+                    let shapes_in_cycle = shape_no - last_first_shape_no;
                     let remaining_repetitions = remaining_shapes / shapes_in_cycle;
                     let excess_shapes = remaining_shapes % shapes_in_cycle;
 
-                    let repetition_height = pseudo_first_row - last_first_row;
+                    let repetition_height = cave.height - last_height;
 
-                    height_boost = remaining_repetitions as isize * repetition_height;
+                    height_boost += remaining_repetitions as isize * repetition_height;
                     shape_no = SHAPES_TO_FALL - excess_shapes;
                 }
                 Entry::Vacant(e) => {
-                    e.insert((pseudo_first_row, pseudo_first_shape_no));
+                    e.insert((cave.height, shape_no));
                 }
             }
         }
