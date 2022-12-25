@@ -192,32 +192,25 @@ impl<'a> Cave<'a> {
 
 #[aoc(day17, part1)]
 pub fn part_1(input: &Input) -> usize {
-    let mut cave = Cave::new(input);
-    let shapes = shapes();
+    solve(input, 2022)
+    // let mut cave = Cave::new(input);
+    // let shapes = shapes();
 
-    for shape_no in 0..2022 {
-        cave.fall(&shapes[shape_no % shapes.len()]);
-    }
-    cave.height as usize
+    // for shape_no in 0..2022 {
+    //     cave.fall(&shapes[shape_no % shapes.len()]);
+    // }
+    // cave.height as usize
 }
 
-#[aoc(day17, part2)]
-pub fn part_2(input: &Input) -> usize {
-    const SHAPES_TO_FALL: usize = 1000000000000;
-
+fn solve(input: &Input, shapes_to_fall: usize) -> usize {
     let mut cave = Cave::new(input);
     let shapes = shapes();
 
     let mut first_row_by_state = FxHashMap::default();
 
-    let mut height_boost = 0;
-    let mut found_rep = false;
-
     let mut heights = vec![];
 
-    let mut shape_no = 0;
-    while shape_no < SHAPES_TO_FALL {
-        shape_no += 1;
+    for shape_no in 0..shapes_to_fall {
         let shape_idx = shape_no % shapes.len();
 
         let shape = &shapes[shape_idx];
@@ -225,29 +218,32 @@ pub fn part_2(input: &Input) -> usize {
 
         heights.push(cave.height);
 
-        if !found_rep {
-            let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
-            if let Some(last_shape_no) = first_row_by_state.insert(current_state, shape_no) {
-                println!("cycle found after {shape_no} shapes!");
-                found_rep = true;
-                // Bingo! Now we can just repeat the cycle.
+        let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
+        if let Some(last_shape_no) = first_row_by_state.insert(current_state, shape_no) {
+            println!("cycle found after {} shapes!", shape_no + 1);
+            // Bingo! Now we can just repeat the cycle.
 
-                let remaining_shapes = SHAPES_TO_FALL - shape_no;
-                let shapes_in_cycle = shape_no - last_shape_no;
-                let cycles_to_skip = remaining_shapes / shapes_in_cycle;
+            let remaining_shapes = shapes_to_fall - shape_no - 1;
+            let shapes_in_cycle = shape_no - last_shape_no;
+            let cycles_to_skip = remaining_shapes / shapes_in_cycle;
+            let remainder_cycles = remaining_shapes % shapes_in_cycle;
 
-                let cycle_height = (cave.height - heights[last_shape_no - 1]) as usize;
-                let remainder_height =
-                    heights[last_shape_no - 1 + (remaining_shapes % shapes_in_cycle)] as usize;
+            let cycle_start_height = heights[last_shape_no];
+            let cycle_height = (cave.height - cycle_start_height) as usize;
+            let remainder_height =
+                (heights[last_shape_no + remainder_cycles] - cycle_start_height) as usize;
 
-                return cave.height as usize + cycles_to_skip * cycle_height + remainder_height;
-                // height_boost += cycles_to_skip as isize * cycle_height;
-                // shape_no += cycles_to_skip * shapes_in_cycle;
-            }
+            return cave.height as usize + cycles_to_skip * cycle_height + remainder_height;
         }
     }
 
-    (cave.height + height_boost) as usize
+    cave.height as usize
+}
+
+
+#[aoc(day17, part2)]
+pub fn part_2(input: &Input) -> usize {
+    solve(input, 1000000000000)
 }
 
 #[cfg(test)]
