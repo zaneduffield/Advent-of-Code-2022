@@ -1,5 +1,5 @@
 use std::{
-    collections::{btree_map::OccupiedEntry, hash_map::Entry, BTreeSet},
+    collections::{btree_map::OccupiedEntry, hash_map::Entry, BTreeSet, VecDeque},
     hash::{Hash, Hasher},
 };
 
@@ -144,6 +144,39 @@ impl<'a> Cave<'a> {
         self.place_at(shape, pos);
     }
 
+    fn hash_rock_state(&self) -> u64 {
+        let mut hash_state = FxHasher::default();
+        let mut visited = FxHashSet::default();
+
+        let mut queue = VecDeque::new();
+        queue.push_back((0, self.height));
+
+        while let Some(pos) = queue.pop_front() {
+            if visited.insert(pos) {
+                continue;
+            }
+
+            pos.hash(&mut hash_state);
+            for (dx, dy) in [
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
+            ] {
+                let nb = (pos.0 + dx, pos.1 + dy);
+                if self.get(nb) == Block::Empty {
+                    queue.push_back(nb);
+                }
+            }
+        }
+
+        hash_state.finish()
+    }
+
     fn hash_top_rows(&self) -> u64 {
         // it would be more efficient to find the hash of just edge of the 'pseudo-floor'
         // but it also would be harder to implement than a simple flood.
@@ -176,12 +209,11 @@ pub fn part_2(input: &Input) -> usize {
     let shapes = shapes();
 
     let mut first_row_by_state = FxHashMap::default();
-    // let mut pseudo_first_shape_no = 0;
-    // let mut pseudo_first_row = 0;
-    // let mut pseudo_cave_hash = FxHasher::default();
 
     let mut height_boost = 0;
     let mut found_rep = false;
+
+    let mut heights = vec![];
 
     let mut shape_no = 0;
     while shape_no < SHAPES_TO_FALL {
@@ -191,28 +223,26 @@ pub fn part_2(input: &Input) -> usize {
         let shape = &shapes[shape_idx];
         cave.fall(shape);
 
+        heights.push(cave.height);
+
         if !found_rep {
-            // let shape_bottom = cave.height - shape.height;
-            let current_state = (cave.hash_top_rows(), cave.wind_idx, shape_idx);
-            match first_row_by_state.entry(current_state) {
-                Entry::Occupied(e) => {
-                    println!("repetition found!");
-                    found_rep = true;
-                    // Bingo! Now we can just replay from the pseudo_first_row.
-                    let (last_height, last_first_shape_no) = *e.get();
+            let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
+            if let Some(last_shape_no) = first_row_by_state.insert(current_state, shape_no) {
+                println!("cycle found after {shape_no} shapes!");
+                found_rep = true;
+                // Bingo! Now we can just repeat the cycle.
 
-                    let remaining_shapes = SHAPES_TO_FALL - shape_no;
-                    let shapes_in_cycle = shape_no - last_first_shape_no;
-                    let cycles_to_skip = remaining_shapes / shapes_in_cycle;
+                let remaining_shapes = SHAPES_TO_FALL - shape_no;
+                let shapes_in_cycle = shape_no - last_shape_no;
+                let cycles_to_skip = remaining_shapes / shapes_in_cycle;
 
-                    let cycle_height = cave.height - last_height;
+                let cycle_height = (cave.height - heights[last_shape_no - 1]) as usize;
+                let remainder_height =
+                    heights[last_shape_no - 1 + (remaining_shapes % shapes_in_cycle)] as usize;
 
-                    height_boost += cycles_to_skip as isize * cycle_height;
-                    shape_no += cycles_to_skip * shapes_in_cycle + 1;
-                }
-                Entry::Vacant(e) => {
-                    e.insert((cave.height, shape_no));
-                }
+                return cave.height as usize + cycles_to_skip * cycle_height + remainder_height;
+                // height_boost += cycles_to_skip as isize * cycle_height;
+                // shape_no += cycles_to_skip * shapes_in_cycle;
             }
         }
     }
