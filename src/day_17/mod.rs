@@ -1,6 +1,10 @@
 use std::{
-    collections::{btree_map::OccupiedEntry, hash_map::Entry, BTreeSet, VecDeque},
-    hash::{Hash, Hasher},
+    collections::{
+        btree_map::OccupiedEntry,
+        hash_map::{DefaultHasher, Entry},
+        BTreeSet, VecDeque,
+    },
+    hash::{Hash, Hasher, SipHasher},
 };
 
 use arrayvec::ArrayVec;
@@ -31,12 +35,12 @@ pub fn input_generator(input: &str) -> Input {
         .collect()
 }
 
-const SHAPES: [(isize, &[(isize, isize)]); 5] = [
-    (1, &[(0, 0), (1, 0), (2, 0), (3, 0)]),
-    (3, &[(1, 0), (0, 1), (1, 1), (2, 1), (1, 2)]),
-    (3, &[(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)]),
-    (4, &[(0, 0), (0, 1), (0, 2), (0, 3)]),
-    (2, &[(0, 0), (1, 0), (0, 1), (1, 1)]),
+const SHAPES: [&[(isize, isize)]; 5] = [
+    &[(0, 0), (1, 0), (2, 0), (3, 0)],
+    &[(1, 0), (0, 1), (1, 1), (2, 1), (1, 2)],
+    &[(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)],
+    &[(0, 0), (0, 1), (0, 2), (0, 3)],
+    &[(0, 0), (1, 0), (0, 1), (1, 1)],
 ];
 
 const WIDTH: usize = 7;
@@ -44,9 +48,9 @@ const INIT_X: isize = 2;
 const INIT_Y_BUFF: isize = 3;
 
 fn shapes() -> [Shape; 5] {
-    SHAPES.map(|(height, s)| Shape {
+    SHAPES.map(|s| Shape {
         offsets: ArrayVec::from_iter(s.to_owned()),
-        height,
+        height: 1 + *s.iter().map(|(_, dy)| dy).max().unwrap_or(&0),
     })
 }
 
@@ -145,28 +149,19 @@ impl<'a> Cave<'a> {
     }
 
     fn hash_rock_state(&self) -> u64 {
-        let mut hash_state = FxHasher::default();
-        let mut visited = FxHashSet::default();
+        let mut hash_state = DefaultHasher::default();
+        let mut visited = BTreeSet::default();
 
         let mut queue = VecDeque::new();
-        queue.push_back((0, self.height));
+        queue.push_back((0, self.height - 1));
 
         while let Some(pos) = queue.pop_front() {
             if visited.insert(pos) {
                 continue;
             }
 
-            pos.hash(&mut hash_state);
-            for (dx, dy) in [
-                (-1, -1),
-                (0, -1),
-                (1, -1),
-                (-1, 0),
-                (1, 0),
-                (-1, 1),
-                (0, 1),
-                (1, 1),
-            ] {
+            (pos.0, self.height - 1 - pos.1).hash(&mut hash_state);
+            for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
                 let nb = (pos.0 + dx, pos.1 + dy);
                 if self.get(nb) == Block::Empty {
                     queue.push_back(nb);
@@ -176,30 +171,6 @@ impl<'a> Cave<'a> {
 
         hash_state.finish()
     }
-
-    fn hash_top_rows(&self) -> u64 {
-        // it would be more efficient to find the hash of just edge of the 'pseudo-floor'
-        // but it also would be harder to implement than a simple flood.
-        let mut hash_state = FxHasher::default();
-        for y in 1..=50 {
-            for x in 0..self.width {
-                self.get((x, self.height - y)).hash(&mut hash_state);
-            }
-        }
-        hash_state.finish()
-    }
-}
-
-#[aoc(day17, part1)]
-pub fn part_1(input: &Input) -> usize {
-    solve(input, 2022)
-    // let mut cave = Cave::new(input);
-    // let shapes = shapes();
-
-    // for shape_no in 0..2022 {
-    //     cave.fall(&shapes[shape_no % shapes.len()]);
-    // }
-    // cave.height as usize
 }
 
 fn solve(input: &Input, shapes_to_fall: usize) -> usize {
@@ -213,17 +184,16 @@ fn solve(input: &Input, shapes_to_fall: usize) -> usize {
     for shape_no in 0..shapes_to_fall {
         let shape_idx = shape_no % shapes.len();
 
-        let shape = &shapes[shape_idx];
-        cave.fall(shape);
-
         heights.push(cave.height);
 
         let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
         if let Some(last_shape_no) = first_row_by_state.insert(current_state, shape_no) {
-            println!("cycle found after {} shapes!", shape_no + 1);
+            println!("cycle found after {} shapes!", shape_no);
             // Bingo! Now we can just repeat the cycle.
+            let last_shape_no = last_shape_no;
+            let shape_no = shape_no;
 
-            let remaining_shapes = shapes_to_fall - shape_no - 1;
+            let remaining_shapes = shapes_to_fall - shape_no;
             let shapes_in_cycle = shape_no - last_shape_no;
             let cycles_to_skip = remaining_shapes / shapes_in_cycle;
             let remainder_cycles = remaining_shapes % shapes_in_cycle;
@@ -233,13 +203,31 @@ fn solve(input: &Input, shapes_to_fall: usize) -> usize {
             let remainder_height =
                 (heights[last_shape_no + remainder_cycles] - cycle_start_height) as usize;
 
-            return cave.height as usize + cycles_to_skip * cycle_height + remainder_height;
+            let n = shapes_to_fall;
+            let i = shape_no;
+            let j = last_shape_no;
+
+            let q = (n - j) / (i - j);
+            let r = (n - j) % (i - j);
+            let theirs = heights[j + r] as usize + q * (cave.height - heights[j]) as usize;
+
+            let mine = cave.height as usize + (cycles_to_skip * cycle_height) + remainder_height;
+            assert_eq!(theirs, mine);
+
+            return mine;
         }
+
+        let shape = &shapes[shape_idx];
+        cave.fall(shape);
     }
 
     cave.height as usize
 }
 
+#[aoc(day17, part1)]
+pub fn part_1(input: &Input) -> usize {
+    solve(input, 2022)
+}
 
 #[aoc(day17, part2)]
 pub fn part_2(input: &Input) -> usize {
@@ -255,5 +243,9 @@ mod tests {
         let input = input_generator(">>><<><>><<<>><>>><<<>>><<<><<<>><>><<>>");
         assert_eq!(part_1(&input), 3068);
         assert_eq!(part_2(&input), 1514285714288);
+
+        let my_input = input_generator(include_str!("../../input/2022/day17.txt"));
+        assert_eq!(part_1(&my_input), 3227);
+        // assert_eq!(part_2(&input), ??);
     }
 }
