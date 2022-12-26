@@ -1,13 +1,8 @@
 use std::{
-    collections::{
-        btree_map::OccupiedEntry,
-        hash_map::{DefaultHasher, Entry},
-        BTreeSet, VecDeque,
-    },
-    hash::{Hash, Hasher, SipHasher},
+    collections::VecDeque,
+    hash::{Hash, Hasher},
 };
 
-use arrayvec::ArrayVec;
 use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 
 pub enum Wind {
@@ -19,7 +14,7 @@ pub type Input = Vec<Wind>;
 
 pub struct Shape {
     height: isize,
-    offsets: ArrayVec<(isize, isize), 5>,
+    offsets: Vec<(isize, isize)>,
 }
 
 #[aoc_generator(day17)]
@@ -49,7 +44,7 @@ const INIT_Y_BUFF: isize = 3;
 
 fn shapes() -> [Shape; 5] {
     SHAPES.map(|s| Shape {
-        offsets: ArrayVec::from_iter(s.to_owned()),
+        offsets: s.iter().copied().collect(),
         height: 1 + *s.iter().map(|(_, dy)| dy).max().unwrap_or(&0),
     })
 }
@@ -119,8 +114,10 @@ impl<'a> Cave<'a> {
     }
 
     fn fall(&mut self, shape: &Shape) {
-        let extra_height = self.width * (INIT_Y_BUFF + shape.height);
-        self.blocks.extend((0..extra_height).map(|_| Block::Empty));
+        let required_height = self.height + INIT_Y_BUFF + shape.height;
+        let blocks_to_add =
+            (required_height * self.width).saturating_sub_unsigned(self.blocks.len());
+        self.blocks.extend((0..blocks_to_add).map(|_| Block::Empty));
 
         let mut pos = (INIT_X, self.height + INIT_Y_BUFF);
         loop {
@@ -149,18 +146,18 @@ impl<'a> Cave<'a> {
     }
 
     fn hash_rock_state(&self) -> u64 {
-        let mut hash_state = DefaultHasher::default();
-        let mut visited = BTreeSet::default();
+        let mut hash_state = FxHasher::default();
+        let mut visited = FxHashSet::default();
 
         let mut queue = VecDeque::new();
-        queue.push_back((0, self.height - 1));
+        queue.push_back((0, self.height));
 
         while let Some(pos) = queue.pop_front() {
-            if visited.insert(pos) {
+            if !visited.insert(pos) {
                 continue;
             }
 
-            (pos.0, self.height - 1 - pos.1).hash(&mut hash_state);
+            (pos.0, self.height - pos.1).hash(&mut hash_state);
             for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
                 let nb = (pos.0 + dx, pos.1 + dy);
                 if self.get(nb) == Block::Empty {
@@ -177,44 +174,29 @@ fn solve(input: &Input, shapes_to_fall: usize) -> usize {
     let mut cave = Cave::new(input);
     let shapes = shapes();
 
-    let mut first_row_by_state = FxHashMap::default();
+    let mut shape_num_by_state = FxHashMap::default();
 
     let mut heights = vec![];
 
-    for shape_no in 0..shapes_to_fall {
-        let shape_idx = shape_no % shapes.len();
+    for shape_num in 0..shapes_to_fall {
+        let shape_idx = shape_num % shapes.len();
 
         heights.push(cave.height);
 
         let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
-        if let Some(last_shape_no) = first_row_by_state.insert(current_state, shape_no) {
-            println!("cycle found after {} shapes!", shape_no);
+        if let Some(last_shape_num) = shape_num_by_state.insert(current_state, shape_num) {
             // Bingo! Now we can just repeat the cycle.
-            let last_shape_no = last_shape_no;
-            let shape_no = shape_no;
-
-            let remaining_shapes = shapes_to_fall - shape_no;
-            let shapes_in_cycle = shape_no - last_shape_no;
+            let remaining_shapes = shapes_to_fall - shape_num;
+            let shapes_in_cycle = shape_num - last_shape_num;
             let cycles_to_skip = remaining_shapes / shapes_in_cycle;
             let remainder_cycles = remaining_shapes % shapes_in_cycle;
 
-            let cycle_start_height = heights[last_shape_no];
+            let cycle_start_height = heights[last_shape_num];
             let cycle_height = (cave.height - cycle_start_height) as usize;
             let remainder_height =
-                (heights[last_shape_no + remainder_cycles] - cycle_start_height) as usize;
+                (heights[last_shape_num + remainder_cycles] - cycle_start_height) as usize;
 
-            let n = shapes_to_fall;
-            let i = shape_no;
-            let j = last_shape_no;
-
-            let q = (n - j) / (i - j);
-            let r = (n - j) % (i - j);
-            let theirs = heights[j + r] as usize + q * (cave.height - heights[j]) as usize;
-
-            let mine = cave.height as usize + (cycles_to_skip * cycle_height) + remainder_height;
-            assert_eq!(theirs, mine);
-
-            return mine;
+            return cave.height as usize + (cycles_to_skip * cycle_height) + remainder_height;
         }
 
         let shape = &shapes[shape_idx];
@@ -246,6 +228,6 @@ mod tests {
 
         let my_input = input_generator(include_str!("../../input/2022/day17.txt"));
         assert_eq!(part_1(&my_input), 3227);
-        // assert_eq!(part_2(&input), ??);
+        assert_eq!(part_2(&my_input), 1597714285698);
     }
 }
