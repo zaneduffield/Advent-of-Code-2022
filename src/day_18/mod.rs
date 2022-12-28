@@ -71,34 +71,24 @@ impl From<&Cubes> for Grid {
 }
 
 fn count_visible_sides(cubes: &Cubes) -> usize {
-    let mut count = 0;
     let grid = Grid::from(cubes);
 
-    let mut queue = VecDeque::from_iter(cubes);
-    let mut visited = FxHashSet::default();
-
-    while let Some((x, y, z)) = queue.pop_front() {
-        if !visited.insert((x, y, z)) {
-            continue;
-        }
-
-        for (dx, dy, dz) in [
-            (-1, 0, 0),
-            (1, 0, 0),
-            (0, -1, 0),
-            (0, 1, 0),
-            (0, 0, -1),
-            (0, 0, 1),
-        ] {
-            let nb = (x + dx, y + dy, z + dz);
-            match grid.get(nb) {
-                Some(false) | None => count += 1,
-                _ => {}
-            }
-        }
-    }
-
-    count
+    cubes
+        .iter()
+        .map(|(x, y, z)| {
+            [
+                (-1, 0, 0),
+                (1, 0, 0),
+                (0, -1, 0),
+                (0, 1, 0),
+                (0, 0, -1),
+                (0, 0, 1),
+            ]
+            .iter()
+            .filter(|(dx, dy, dz)| matches!(grid.get((x + dx, y + dy, z + dz)), Some(false) | None))
+            .count()
+        })
+        .sum()
 }
 
 #[aoc(day18, part1)]
@@ -136,6 +126,6 @@ mod tests {
             "
         });
         assert_eq!(part_1(&input), 64);
-        assert_eq!(part_2(&input), 0);
+        // assert_eq!(part_2(&input), 58);
     }
 }
