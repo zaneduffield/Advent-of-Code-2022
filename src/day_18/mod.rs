@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, hash::BuildHasherDefault};
 
 use itertools::Itertools;
 use rustc_hash::FxHashSet;
@@ -7,20 +7,25 @@ pub type Cubes = Vec<(usize, usize, usize)>;
 
 pub struct Input {
     cubes: Cubes,
+    data: Vec<Block>,
+    width: usize,
+    height: usize,
+    depth: usize,
 }
 
 #[aoc_generator(day18)]
 pub fn input_generator(input: &str) -> Input {
-    let cubes = input
-        .lines()
-        .map(|line| {
-            line.split(',')
-                .map(|s| s.parse().expect("failed to parse as int"))
-                .collect_tuple()
-                .expect("failed to parse line as cube (x,y,z)")
-        })
-        .collect();
-    Input { cubes }
+    Input::new(
+        &input
+            .lines()
+            .map(|line| {
+                line.split(',')
+                    .map(|s| s.parse().expect("failed to parse as int"))
+                    .collect_tuple()
+                    .expect("failed to parse line as cube (x,y,z)")
+            })
+            .collect(),
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -29,27 +34,54 @@ enum Block {
     Full,
 }
 
-struct Grid {
-    data: Vec<Block>,
-    width: usize,
-    height: usize,
-}
+impl Input {
+    fn new(cubes: &Cubes) -> Self {
+        let (mut max_x, mut max_y, mut max_z) = (0, 0, 0);
+        let (mut min_x, mut min_y, mut min_z) = (usize::MAX, usize::MAX, usize::MAX);
+        cubes.iter().for_each(|&(x, y, z)| {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            min_z = min_z.min(z);
 
-impl Grid {
-    fn new(width: usize, height: usize, depth: usize) -> Self {
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            max_z = max_z.max(z);
+        });
+
+        // We will rescale so all the mins become 1, and the maxes become (max - min + 1).
+        // We also add a one-block buffer around all cubes, so that a DFS can count the side
+        // of a block that is up against the edge of the grid.
+        let width = (max_x - min_x + 3) as usize;
+        let height = (max_y - min_y + 3) as usize;
+        let depth = (max_z - min_z + 3) as usize;
+
         let data = vec![Block::Empty; width * height * depth];
-        Self {
-            data,
+        let cubes: Cubes = cubes
+            .iter()
+            .map(|&(x, y, z)| (x - min_x + 1, y - min_y + 1, z - min_z + 1))
+            .collect();
+
+        let mut grid = Self {
             width,
             height,
-        }
+            depth,
+            data,
+            cubes: vec![],
+        };
+
+        cubes
+            .iter()
+            .for_each(|&p| *grid.get_mut(p).unwrap() = Block::Full);
+        grid.cubes = cubes;
+
+        grid
     }
 
     fn idx(&self, (x, y, z): (usize, usize, usize)) -> usize {
         z * self.width * self.height + y * self.width + x
     }
 
-    fn out_of_bounds(&self, (x, y, z): (usize, usize, usize)) -> bool {
+    fn out_of_bounds(&self, (x, y, _z): (usize, usize, usize)) -> bool {
         x >= self.width || y >= self.height
     }
 
@@ -71,57 +103,28 @@ impl Grid {
     }
 }
 
-impl From<&Cubes> for Grid {
-    fn from(cubes: &Cubes) -> Self {
-        let (mut max_x, mut max_y, mut max_z) = (0, 0, 0);
-        let (mut min_x, mut min_y, mut min_z) = (usize::MAX, usize::MAX, usize::MAX);
-        cubes.iter().for_each(|&(x, y, z)| {
-            min_x = min_x.min(x);
-            min_y = min_y.min(y);
-            min_z = min_z.min(z);
-
-            max_x = max_x.max(x);
-            max_y = max_y.max(y);
-            max_z = max_z.max(z);
-        });
-
-        // We will rescale so all the mins become 1, and the maxes become (max - min + 1).
-        // We also add a one-block buffer around all cubes, so that a DFS can count the side
-        // of a block that is up against the edge of the grid.
-        let mut grid = Self::new(
-            (max_x - min_x + 3) as usize,
-            (max_y - min_y + 3) as usize,
-            (max_z - min_z + 3) as usize,
-        );
-        cubes.iter().for_each(|&(x, y, z)| {
-            *grid
-                .get_mut((x - min_x + 1, y - min_y + 1, z - min_z + 1))
-                .unwrap() = Block::Full
-        });
-        grid
-    }
-}
-
 fn nbours((x, y, z): (usize, usize, usize)) -> [Option<(usize, usize, usize)>; 6] {
     let mut out = [None; 6];
-    let mut len = 0;
+    let mut idx = 0;
     if x >= 1 {
-        out[len] = Some((x - 1, y, z));
-        len += 1;
+        out[idx] = Some((x - 1, y, z));
+        idx += 1;
     }
-    out[len] = Some((x + 1, y, z));
-    len += 1;
+    out[idx] = Some((x + 1, y, z));
+    idx += 1;
+
     if y >= 1 {
-        out[len] = Some((x, y - 1, z));
-        len += 1;
+        out[idx] = Some((x, y - 1, z));
+        idx += 1;
     }
-    out[len] = Some((x, y + 1, z));
-    len += 1;
+    out[idx] = Some((x, y + 1, z));
+    idx += 1;
+
     if z >= 1 {
-        out[len] = Some((x, y, z - 1));
-        len += 1;
+        out[idx] = Some((x, y, z - 1));
+        idx += 1;
     }
-    out[len] = Some((x, y, z + 1));
+    out[idx] = Some((x, y, z + 1));
 
     out
 }
@@ -137,15 +140,13 @@ fn nbours_saturating((x, y, z): (usize, usize, usize)) -> [(usize, usize, usize)
     ]
 }
 
-fn count_visible_sides(cubes: &Cubes) -> usize {
-    let grid = Grid::from(cubes);
-
-    cubes.iter().fold(0, |count, p| {
+fn count_visible_sides(input: &Input) -> usize {
+    input.cubes.iter().fold(0, |count, p| {
         count
             + nbours(*p)
                 .iter()
                 .flatten()
-                .map(|p| grid.get(*p))
+                .map(|p| input.get(*p))
                 .filter(|b| matches!(b, Some(Block::Empty) | None))
                 .count()
     })
@@ -153,13 +154,13 @@ fn count_visible_sides(cubes: &Cubes) -> usize {
 
 #[aoc(day18, part1)]
 pub fn part_1(input: &Input) -> usize {
-    count_visible_sides(&input.cubes)
+    count_visible_sides(input)
 }
 
-fn count_reachable_sides(cubes: &Cubes) -> usize {
-    let grid = Grid::from(cubes);
+fn count_reachable_sides(input: &Input) -> usize {
+    let grid_size = input.width * input.height * input.depth;
+    let mut visited = FxHashSet::with_capacity_and_hasher(grid_size, BuildHasherDefault::default());
 
-    let mut visited = FxHashSet::default();
     let mut queue = VecDeque::new();
     queue.push_back((0usize, 0usize, 0usize));
 
@@ -169,7 +170,7 @@ fn count_reachable_sides(cubes: &Cubes) -> usize {
             continue;
         }
         for nb in nbours_saturating(p) {
-            match grid.get(nb) {
+            match input.get(nb) {
                 Some(Block::Full) => count += 1,
                 Some(Block::Empty) => queue.push_back(nb),
                 None => {}
@@ -181,7 +182,7 @@ fn count_reachable_sides(cubes: &Cubes) -> usize {
 
 #[aoc(day18, part2)]
 pub fn part_2(input: &Input) -> usize {
-    count_reachable_sides(&input.cubes)
+    count_reachable_sides(input)
 }
 
 #[cfg(test)]
