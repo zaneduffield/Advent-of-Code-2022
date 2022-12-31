@@ -4,13 +4,13 @@ use std::{
 };
 
 use arrayvec::ArrayVec;
-use itertools::Itertools;
+use rayon::prelude::*;
 use regex::Regex;
 use rustc_hash::FxHashSet;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumString};
 
-#[derive(Copy, Clone, EnumString, EnumCount, EnumIter)]
+#[derive(Copy, Clone, EnumString, EnumCount, EnumIter, PartialEq, Eq)]
 #[strum(ascii_case_insensitive)]
 pub enum Resource {
     Ore,
@@ -19,45 +19,55 @@ pub enum Resource {
     Geode,
 }
 
+pub struct Ingredient {
+    count: u8,
+    resource: Resource,
+}
+
 pub struct Recipe {
     goal: Resource,
-    ingredients: ArrayVec<(u8, Resource), { Resource::COUNT }>,
+    ingredients: ArrayVec<Ingredient, { Resource::COUNT }>,
 }
 
 pub struct Blueprint {
     recipes: ArrayVec<Recipe, 4>,
+    max_ingredient_counts: [u8; Resource::COUNT],
 }
 
 pub type Input = Vec<Blueprint>;
 
 #[aoc_generator(day19)]
 pub fn input_generator(input: &str) -> Input {
-    let re = Regex::new(r"Each (\w+) robot costs (?:(\d+) (\w+)(?: and)?)+.").unwrap();
+    let re_blueprint = Regex::new(r"Each (\w+) robot costs ([^.]+).").unwrap();
+    let re_item = Regex::new(r"(\d+) (\w+)").unwrap();
     input
         .lines()
-        .map(|line| Blueprint {
-            recipes: re
+        .map(|line| {
+            let recipes: ArrayVec<Recipe, { Resource::COUNT }> = re_blueprint
                 .captures_iter(line)
                 .map(|caps| Recipe {
-                    goal: caps
-                        .get(1)
-                        .unwrap()
-                        .as_str()
-                        .parse()
-                        .expect("failed to parse as resource"),
-                    ingredients: caps
-                        .iter()
-                        .skip(2)
-                        .tuples()
-                        .map(|(count, res)| {
-                            (
-                                count.unwrap().as_str().parse().unwrap(),
-                                res.unwrap().as_str().parse().unwrap(),
-                            )
+                    goal: caps[1].parse().expect("failed to parse as resource"),
+                    ingredients: re_item
+                        .captures_iter(&caps[2])
+                        .map(|caps| Ingredient {
+                            count: caps[1].parse().unwrap(),
+                            resource: caps[2].parse().unwrap(),
                         })
                         .collect(),
                 })
-                .collect(),
+                .collect();
+            let mut max_ingredient_counts = [0; Resource::COUNT];
+            recipes.iter().flat_map(|r| &r.ingredients).for_each(
+                |&Ingredient { count, resource }| {
+                    max_ingredient_counts[resource as usize] =
+                        max_ingredient_counts[resource as usize].max(count)
+                },
+            );
+
+            Blueprint {
+                recipes,
+                max_ingredient_counts,
+            }
         })
         .collect()
 }
@@ -92,28 +102,41 @@ impl State {
         &mut self.production[r as usize]
     }
 
-    fn nbours(&self, blueprint: &Blueprint) -> ArrayVec<State, { Resource::COUNT + 1 }> {
+    fn next(&self) -> Self {
         let mut next = self.clone();
         for r in Resource::iter() {
             let c = next.get_prod_count(r);
             *next.get_res_count_mut(r) += c;
         }
+        next
+    }
 
+    fn nbours(&self, blueprint: &Blueprint) -> ArrayVec<State, { Resource::COUNT + 1 }> {
+        let next = self.next();
         let mut out = ArrayVec::new();
 
-        out.push(next.clone());
         for r in &blueprint.recipes {
+            // you never need to produce more than the maximum consumption
+            // if self.get_prod_count(r.goal) > blueprint.max_ingredient_counts[r.goal as usize] {
+            //     continue;
+            // }
+
             if r.ingredients
                 .iter()
-                .all(|(count, res)| self.get_res_count(*res) >= *count)
+                .all(|Ingredient { count, resource }| self.get_res_count(*resource) >= *count)
             {
                 let mut new = next.clone();
-                for (count, res) in &r.ingredients {
-                    *new.get_res_count_mut(*res) -= *count;
+                for Ingredient { count, resource } in &r.ingredients {
+                    *new.get_res_count_mut(*resource) -= *count;
                 }
                 *new.get_prod_count_mut(r.goal) += 1;
                 out.push(new);
             }
+        }
+
+        // if we can't make every robot, then we should consider waiting
+        if out.len() < Resource::COUNT {
+            out.push(next.clone());
         }
 
         out
@@ -121,9 +144,8 @@ impl State {
 }
 
 impl Blueprint {
-    fn solve(&self) -> u8 {
-        const ROUNDS: usize = 24;
-        const BEAM_WIDTH: usize = 1000;
+    fn solve(&self, rounds: usize) -> u8 {
+        const BEAM_WIDTH: usize = 10000;
 
         let mut queue = VecDeque::new();
         let mut init = State::new();
@@ -135,7 +157,7 @@ impl Blueprint {
         let mut beam = BinaryHeap::new();
 
         let mut most_geodes = 0;
-        for round in 0..ROUNDS {
+        for round in 0..rounds {
             for _ in 0..queue.len() {
                 let state = queue.pop_front().unwrap();
                 if !visited.insert(state.clone()) {
@@ -145,19 +167,20 @@ impl Blueprint {
                 let next_geodes =
                     state.get_res_count(Resource::Geode) + state.get_prod_count(Resource::Geode);
 
-                if round == ROUNDS - 1 {
+                if round == rounds - 1 {
                     most_geodes = most_geodes.max(next_geodes);
                     continue;
                 }
 
+                let heuristic = next_geodes;
                 if beam.len() < BEAM_WIDTH {
-                    beam.push(Reverse(next_geodes))
+                    beam.push(Reverse(heuristic))
                 } else {
                     let smallest = beam.peek().unwrap().0;
-                    match smallest.cmp(&next_geodes) {
+                    match smallest.cmp(&heuristic) {
                         Ordering::Less => {
                             beam.pop();
-                            beam.push(Reverse(next_geodes));
+                            beam.push(Reverse(heuristic));
                         }
                         // skip because it's unlikely to catch up and become optimal
                         Ordering::Greater => continue,
@@ -176,15 +199,21 @@ impl Blueprint {
 #[aoc(day19, part1)]
 pub fn part_1(input: &Input) -> u32 {
     input
-        .iter()
+        // .iter()
+        .par_iter()
         .enumerate()
-        .map(|(i, b)| (i + 1) as u32 * b.solve() as u32)
+        .map(|(i, b)| (i + 1) as u32 * b.solve(24) as u32)
         .sum()
 }
 
 #[aoc(day19, part2)]
-pub fn part_2(input: &Input) -> u64 {
-    0
+pub fn part_2(input: &Input) -> u32 {
+    input
+        // .iter()
+        .par_iter()
+        .take(3)
+        .map(|b| b.solve(32) as u32)
+        .product()
 }
 
 #[cfg(test)]
@@ -201,6 +230,6 @@ mod tests {
             "
         });
         assert_eq!(part_1(&input), 33);
-        // assert_eq!(part_2(&input),);
+        assert_eq!(part_2(&input), 62);
     }
 }
