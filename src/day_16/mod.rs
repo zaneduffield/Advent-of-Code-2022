@@ -44,7 +44,7 @@ impl Valve {
         }
         let captures = RE
             .captures(value)
-            .expect(&format!("line didn't match re: {value}"));
+            .unwrap_or_else(|| panic!("line didn't match re: {value}"));
         let id = str_to_id(&captures[1], id_map, max_id);
         let flow_rate = captures[2].parse().unwrap();
         let nbours = captures[3]
@@ -70,7 +70,7 @@ pub fn input_generator(input: &str) -> Input {
         let id = valve.id;
         valves[id as usize] = Some(valve);
     }
-    let start_id = str_to_id(&"AA", &mut id_map, &mut max_id);
+    let start_id = str_to_id("AA", &mut id_map, &mut max_id);
     Input {
         valves: valves.into_iter().flatten().collect(),
         start_id,
@@ -175,7 +175,6 @@ pub fn part_1(input: &Input) -> u32 {
                         current_flow: current_flow + cur_valve.flow_rate,
                         released_pressure: next_pressure,
                         open_valves: new_open_set,
-                        ..state
                     };
                     queue.push_back((pos, new_state))
                 }

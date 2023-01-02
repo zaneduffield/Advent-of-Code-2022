@@ -51,9 +51,9 @@ impl Input {
         // We will rescale so all the mins become 1, and the maxes become (max - min + 1).
         // We also add a one-block buffer around all cubes, so that a DFS can count the side
         // of a block that is up against the edge of the grid.
-        let width = (max_x - min_x + 3) as usize;
-        let height = (max_y - min_y + 3) as usize;
-        let depth = (max_z - min_z + 3) as usize;
+        let width = max_x - min_x + 3;
+        let height = max_y - min_y + 3;
+        let depth = max_z - min_z + 3;
 
         let data = vec![Block::Empty; width * height * depth];
         let cubes: Cubes = cubes

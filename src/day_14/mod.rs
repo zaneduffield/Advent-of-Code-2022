@@ -38,7 +38,7 @@ pub fn input_generator(input: &str) -> Input {
             line.split(" -> ")
                 .map(|point| {
                     let (x, y) = point
-                        .split(",")
+                        .split(',')
                         .map(|i| i.parse::<usize>().expect("could not parse as int"))
                         .collect_tuple()
                         .expect("coordinates much be 2 comma-delimited ints");

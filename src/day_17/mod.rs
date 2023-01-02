@@ -44,7 +44,7 @@ const INIT_Y_BUFF: isize = 3;
 
 fn shapes() -> [Shape; 5] {
     SHAPES.map(|s| Shape {
-        offsets: s.iter().copied().collect(),
+        offsets: s.to_vec(),
         height: 1 + *s.iter().map(|(_, dy)| dy).max().unwrap_or(&0),
     })
 }
@@ -92,7 +92,7 @@ impl<'a> Cave<'a> {
         } else {
             let idx = self.idx((x, y));
             if let Some(b) = self.blocks.get_mut(idx) {
-                Some(*b = new);
+                *b = new;
                 true
             } else {
                 false
