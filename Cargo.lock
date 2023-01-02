@@ -9,6 +9,7 @@ dependencies = [
  "aoc-runner",
  "aoc-runner-derive",
  "arrayvec",
+ "btreelist",
  "indoc",
  "itertools",
  "lazy_static",
@@ -73,6 +74,12 @@ name = "autocfg"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
+
+[[package]]
+name = "btreelist"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d36a3d13f0434380f8f6acc40241f358a1e8f3c00ec49a971b797775002e4482"
 
 [[package]]
 name = "cfg-if"
