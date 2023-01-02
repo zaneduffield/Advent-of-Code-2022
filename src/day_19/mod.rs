@@ -3,9 +3,13 @@
 use std::ops::{Add, Index, IndexMut, Mul};
 
 use arrayvec::ArrayVec;
-use itertools::Itertools;
+use nom::{
+    bytes::complete::tag,
+    character::complete::{alpha1, char, line_ending, space1, u8},
+    multi::{count, many0, separated_list1},
+    sequence::{delimited, pair, tuple},
+};
 use rayon::prelude::*;
-use regex::Regex;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter, EnumString};
 
@@ -17,6 +21,13 @@ pub enum Resource {
     Obsidian,
     Geode,
 }
+
+const ALL_RESOURCES: [Resource; Resource::COUNT] = [
+    Resource::Ore,
+    Resource::Clay,
+    Resource::Obsidian,
+    Resource::Geode,
+];
 
 #[derive(Debug, Copy, Clone)]
 pub struct Resources {
@@ -92,44 +103,58 @@ pub struct Blueprint {
     max_ingredient_counts: Resources,
 }
 
+impl Blueprint {
+    fn new(recipes: [Recipe; Resource::COUNT]) -> Blueprint {
+        let mut max_ingredient_counts = Resources::new();
+        recipes.iter().for_each(|r| {
+            Resource::iter().for_each(|res| {
+                max_ingredient_counts[res] = max_ingredient_counts[res].max(r.cost[res])
+            })
+        });
+
+        Blueprint {
+            recipes,
+            max_ingredient_counts,
+        }
+    }
+}
+
 pub type Input = Vec<Blueprint>;
+pub type IResult<'a, T> = nom::IResult<&'a str, T>;
+
+fn parse_blueprint(input: &str) -> IResult<Blueprint> {
+    let (input, _id) = delimited(tag("Blueprint "), u8, tag(": "))(input)?;
+
+    let (input, v) = count(
+        tuple((
+            delimited(tag("Each "), alpha1, tag(" robot costs ")),
+            separated_list1(tag(" and "), tuple((u8, space1, alpha1))),
+            pair(tag("."), many0(char(' '))),
+        )),
+        Resource::COUNT,
+    )(input)?;
+
+    let mut recipes = ALL_RESOURCES.map(|goal| Recipe {
+        goal,
+        cost: Resources::new(),
+    });
+
+    v.into_iter().for_each(|(goal, ingredients, _)| {
+        let goal: Resource = goal.parse().unwrap();
+        for (count, _, res) in ingredients {
+            let res = res.parse().unwrap();
+            recipes[goal as usize].cost[res] = count;
+        }
+    });
+
+    Ok((input, Blueprint::new(recipes)))
+}
 
 #[aoc_generator(day19)]
 pub fn input_generator(input: &str) -> Input {
-    let re_blueprint = Regex::new(r"Each (\w+) robot costs ([^.]+).").unwrap();
-    let re_item = Regex::new(r"(\d+) (\w+)").unwrap();
-    input
-        .lines()
-        .map(|line| {
-            let recipes: [Recipe; Resource::COUNT] = re_blueprint
-                .captures_iter(line)
-                .map(|caps| {
-                    let mut cost = Resources::new();
-                    re_item.captures_iter(&caps[2]).for_each(|caps| {
-                        cost[caps[2].parse::<Resource>().unwrap()] = caps[1].parse().unwrap()
-                    });
-                    Recipe {
-                        goal: caps[1].parse().expect("failed to parse as resource"),
-                        cost,
-                    }
-                })
-                .sorted_by_key(|r| r.goal)
-                .collect_vec()
-                .try_into()
-                .unwrap();
-            let mut max_ingredient_counts = Resources::new();
-            recipes.iter().for_each(|r| {
-                Resource::iter().for_each(|res| {
-                    max_ingredient_counts[res] = max_ingredient_counts[res].max(r.cost[res])
-                })
-            });
-
-            Blueprint {
-                recipes,
-                max_ingredient_counts,
-            }
-        })
-        .collect()
+    separated_list1(line_ending, parse_blueprint)(input)
+        .unwrap()
+        .1
 }
 
 #[derive(Copy, Clone)]
@@ -178,7 +203,7 @@ impl State {
     fn branch(&self, blueprint: &Blueprint) -> ArrayVec<State, { Resource::COUNT }> {
         let mut out = ArrayVec::new();
 
-        if self.remaining_steps <= 0 {
+        if self.remaining_steps == 0 {
             return out;
         }
 

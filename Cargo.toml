@@ -21,6 +21,7 @@ range_union_find = "0.4.3"
 lazy_static = "1.4.0"
 strum = "0.24"
 strum_macros = "0.24"
+nom = "7.1.1"
 # some dependencies that will probably be used later
 #bytelines = "2.4.0"
 #pathfinding = "3.0.5"
