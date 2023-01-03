@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use btreelist::BTreeList;
 
-pub type NumVal = i32;
+pub type NumVal = i64;
 pub type NumId = usize;
 
 #[derive(Copy, Clone, Debug)]
@@ -80,23 +80,19 @@ pub fn part_1(input: &Input) -> NumVal {
 
 #[aoc(day20, part2)]
 pub fn part_2(input: &Input) -> i64 {
-    let key_mod_len = DECRYPTION_KEY.rem_euclid(input.len() as NumVal);
     let mut file = File::new(
         &input
             .iter()
             .copied()
             .map(|mut n| {
-                n.1 = n.1.rem_euclid(input.len() as NumVal) * key_mod_len;
+                n.1 *= DECRYPTION_KEY;
                 n
             })
             .collect(),
     );
 
     (0..10).for_each(|_| file.mix());
-    file.groove_coordinates()
-        .iter()
-        .map(|n| input[n.0].1 as i64 * key_mod_len as i64)
-        .sum()
+    file.groove_coordinates().iter().map(|n| n.1).sum()
 }
 
 #[cfg(test)]
