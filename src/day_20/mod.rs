@@ -2,11 +2,11 @@ use std::cmp::Ordering;
 
 use btreelist::BTreeList;
 
-pub type NumVal = i16;
+pub type NumVal = i32;
 pub type NumId = usize;
 
-#[derive(Copy, Clone)]
-struct Num(NumId, NumVal);
+#[derive(Copy, Clone, Debug)]
+pub struct Num(NumId, NumVal);
 
 pub type Input = Vec<Num>;
 
@@ -19,6 +19,8 @@ pub fn input_generator(input: &str) -> Input {
         .collect()
 }
 
+const DECRYPTION_KEY: NumVal = 811589153;
+
 struct File {
     data: BTreeList<Num>,
 }
@@ -30,37 +32,72 @@ impl File {
         }
     }
 
-    fn binary_search(&self, id: NumId) -> Option<usize> {
-        let (mut lo, mut hi) = (0, self.data.len() - 1);
-        while lo < hi {
-            let mid = lo + (hi - lo) / 2;
-            match self.data[mid].0.cmp(&id) {
-                Ordering::Less => lo = mid,
-                Ordering::Greater => hi = mid,
-                Ordering::Equal => return Some(mid),
-            }
-        }
-        None
+    fn find(&self, id: NumId) -> Option<usize> {
+        self.data.iter().position(|n| n.0 == id)
+
+        // let (mut lo, mut hi) = (0, self.data.len() - 1);
+        // while lo <= hi {
+        //     let mid = (hi + lo) / 2;
+        //     match self.data[mid].0.cmp(&id) {
+        //         Ordering::Less => lo = mid + 1,
+        //         Ordering::Greater => hi = mid - 1,
+        //         Ordering::Equal => return Some(mid),
+        //     }
+        // }
+        // None
     }
 
     fn mix(&mut self) {
         for id in 0..self.data.len() {
-            let idx = self.binary_search(id).unwrap();
-            let Num(_, didx) = self.data[idx];
-            if didx > 0 {
-                let new_idx = idx + didx as usize;
-            } else {
-                let new_idx = idx.checked_sub(didx)...;
-            }
+            let idx = self.find(id).unwrap();
+            let elm = self.data[idx];
+            self.data.remove(idx);
+            let new_idx =
+                (idx as isize + elm.1 as isize).rem_euclid(self.data.len() as isize) as usize;
+            self.data.insert(new_idx, elm).unwrap();
         }
+    }
+
+    fn groove_coordinates(&self) -> [Num; 3] {
+        let zero_idx = self
+            .data
+            .iter()
+            .position(|Num(_, val)| val == &0)
+            .expect("couldn't find zero");
+        [1000, 2000, 3000].map(|idx: usize| {
+            let idx = (idx + zero_idx).rem_euclid(self.data.len());
+            self.data[idx]
+        })
     }
 }
 
 #[aoc(day20, part1)]
-pub fn part_1(input: &Input) -> u32 {}
+pub fn part_1(input: &Input) -> NumVal {
+    let mut file = File::new(input);
+    file.mix();
+    file.groove_coordinates().iter().map(|n| n.1).sum()
+}
 
 #[aoc(day20, part2)]
-pub fn part_2(input: &Input) -> u32 {}
+pub fn part_2(input: &Input) -> i64 {
+    let key_mod_len = DECRYPTION_KEY.rem_euclid(input.len() as NumVal);
+    let mut file = File::new(
+        &input
+            .iter()
+            .copied()
+            .map(|mut n| {
+                n.1 = n.1.rem_euclid(input.len() as NumVal) * key_mod_len;
+                n
+            })
+            .collect(),
+    );
+
+    (0..10).for_each(|_| file.mix());
+    file.groove_coordinates()
+        .iter()
+        .map(|n| input[n.0].1 as i64 * key_mod_len as i64)
+        .sum()
+}
 
 #[cfg(test)]
 mod tests {
@@ -80,7 +117,7 @@ mod tests {
             4
             "
         });
-        assert_eq!(part_1(&input),);
-        assert_eq!(part_2(&input),);
+        assert_eq!(part_1(&input), 3);
+        assert_eq!(part_2(&input), 1623178306);
     }
 }
