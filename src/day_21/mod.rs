@@ -1,18 +1,8 @@
-use std::ops::Index;
-use std::process::id;
+use core::panic;
 
-use itertools::iterate;
-use itertools::Itertools;
-use nom::bytes::complete::take_till;
-use nom::bytes::complete::take_till1;
-use nom::bytes::complete::take_while;
 use nom::character::complete::alpha1;
-use nom::character::complete::{char, i64, line_ending, *};
-use nom::character::is_newline;
-use nom::character::is_space;
-use nom::combinator::not;
+use nom::character::complete::{char, line_ending, *};
 use nom::combinator::opt;
-use nom::multi::many1;
 use nom::multi::separated_list1;
 use nom::sequence::delimited;
 use nom::sequence::tuple;
@@ -39,6 +29,15 @@ impl Operation {
             Operation::Div => left / right,
         }
     }
+
+    fn inverse(&self) -> Operation {
+        match self {
+            Operation::Add => Operation::Sub,
+            Operation::Sub => Operation::Add,
+            Operation::Mul => Operation::Div,
+            Operation::Div => Operation::Mul,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -58,6 +57,7 @@ pub struct Monkey {
 pub struct Input {
     monkeys: Vec<Monkey>,
     root_id: Id,
+    my_id: Id,
 }
 
 struct MonkeyParser<'a, 'b> {
@@ -131,9 +131,16 @@ pub fn input_generator(data: &str) -> Input {
     let root_id = *id_map
         .get("root")
         .expect("couldn't find monkey with name 'root'");
+    let my_id = *id_map
+        .get("humn")
+        .expect("couldn't find monkey with name 'humn'");
 
     monkeys.sort_by_key(|m| m.id);
-    Input { monkeys, root_id }
+    Input {
+        monkeys,
+        root_id,
+        my_id,
+    }
 }
 
 impl Input {
@@ -162,9 +169,136 @@ pub fn part_1(input: &Input) -> LargeVal {
     input.eval(input.root_id)
 }
 
+enum ExpressionKind {
+    Constant(LargeVal),
+    Variable,
+    Op(Box<Expression>, Operation, Box<Expression>),
+}
+
+struct Expression {
+    kind: ExpressionKind,
+    var_count: Option<u32>,
+}
+
+impl From<ExpressionKind> for Expression {
+    fn from(kind: ExpressionKind) -> Self {
+        Expression {
+            kind,
+            var_count: None,
+        }
+    }
+}
+
+impl Expression {
+    fn new(input: &Input, id: Id) -> Expression {
+        let kind = match input.monkeys[id as usize].job {
+            Job::Number(_) if id == input.my_id => ExpressionKind::Variable,
+            Job::Number(x) => ExpressionKind::Constant(x.into()),
+            Job::Computation(left, op, right) => ExpressionKind::Op(
+                Box::new(Expression::new(input, left)),
+                op,
+                Box::new(Expression::new(input, right)),
+            ),
+        };
+        Expression {
+            kind,
+            var_count: None,
+        }
+    }
+
+    fn var_count(&mut self) -> u32 {
+        match self.var_count {
+            Some(c) => c,
+            None => {
+                let count = match &mut self.kind {
+                    ExpressionKind::Constant(_) => 0,
+                    ExpressionKind::Variable => 1,
+                    ExpressionKind::Op(left, _, right) => left.var_count() + right.var_count(),
+                };
+                self.var_count = Some(count);
+                count
+            }
+        }
+    }
+
+    fn compute(&self) -> LargeVal {
+        match &self.kind {
+            ExpressionKind::Constant(x) => *x,
+            ExpressionKind::Variable => panic!("Cannot compute expression containing a variable"),
+            ExpressionKind::Op(x, op, y) => op.eval(x.compute(), y.compute()),
+        }
+    }
+}
+
+struct Equation {
+    left: Expression,
+    right: Expression,
+}
+
+impl Equation {
+    fn new(input: &Input) -> Equation {
+        let root = &input.monkeys[input.root_id as usize];
+        if let Job::Computation(left, _, right) = root.job {
+            return Equation {
+                left: Expression::new(input, left),
+                right: Expression::new(input, right),
+            };
+        }
+        panic!("root monkey's value was not a binary operation")
+    }
+
+    fn solve(mut self) -> LargeVal {
+        let l_var = self.left.var_count();
+        let r_var = self.right.var_count();
+        if l_var + r_var > 1 {
+            panic!("This algorithm only handles the case where the variable is on one side of the equation.")
+        } else if l_var + r_var == 0 {
+            panic!("No variable found")
+        }
+
+        let (mut e_with_var, mut e_without_var) = if l_var > 0 {
+            (self.left, self.right)
+        } else {
+            (self.right, self.left)
+        };
+
+        /*
+            This loop iteratively unwraps the side of the expression that
+            contains the variable until it contains nothing else, at which point we
+            can evaluate the other side.
+        */
+        loop {
+            match e_with_var.kind {
+                ExpressionKind::Constant(_) => panic!("invalid state"),
+                ExpressionKind::Variable => return e_without_var.compute(),
+                ExpressionKind::Op(mut left, op, right) => {
+                    if left.var_count() > 0 {
+                        e_with_var = *left;
+                        // (l +-*/ r = o) => (l = o -+/* r )
+                        e_without_var =
+                            ExpressionKind::Op(Box::new(e_without_var), op.inverse(), right).into();
+                    } else {
+                        e_with_var = *right;
+                        let (new_l, new_op, new_r) = match op {
+                            // (l +* r = o) => (o -/ l = r)
+                            Operation::Add | Operation::Mul => {
+                                (Box::new(e_without_var), op.inverse(), left)
+                            }
+                            // (l -/ r = o) => (l -/ o = r)
+                            Operation::Sub | Operation::Div => (left, op, Box::new(e_without_var)),
+                        };
+                        e_without_var = ExpressionKind::Op(new_l, new_op, new_r).into();
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[aoc(day21, part2)]
-pub fn part_2(input: &Input) -> u32 {
-    0
+pub fn part_2(input: &Input) -> LargeVal {
+    let eq = Equation::new(input);
+    eq.solve()
 }
 
 #[cfg(test)]
@@ -194,6 +328,6 @@ mod tests {
             "
         });
         assert_eq!(part_1(&input), 152);
-        // assert_eq!(part_2(&input),);
+        assert_eq!(part_2(&input), 301);
     }
 }
