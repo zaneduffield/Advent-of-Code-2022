@@ -1,6 +1,7 @@
+use itertools::Itertools;
 use std::fmt::{Debug, Write};
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Tile {
     Elf,
     Empty,
@@ -25,7 +26,7 @@ const INIT_DIFFS: [Step; 4] = [
 #[derive(Clone)]
 pub struct Input {
     grid: Vec<Tile>,
-    target_states: Vec<TargetState>,
+    elves: Vec<(usize, usize)>,
     width: usize,
     height: usize,
     diffs: [Step; 4],
@@ -52,7 +53,7 @@ impl Input {
     fn new(grid: Vec<Tile>, width: usize, height: usize) -> Input {
         Input {
             grid,
-            target_states: vec![],
+            elves: vec![],
             width,
             height,
             diffs: INIT_DIFFS,
@@ -70,15 +71,6 @@ impl Input {
     fn get_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut Tile> {
         let idx = self.idx(y, x);
         self.grid.get_mut(idx)
-    }
-
-    fn get_target(&self, (x, y): (usize, usize)) -> Option<&TargetState> {
-        self.target_states.get(self.idx(y, x))
-    }
-
-    fn get_target_mut(&mut self, (x, y): (usize, usize)) -> Option<&mut TargetState> {
-        let idx = self.idx(y, x);
-        self.target_states.get_mut(idx)
     }
 
     fn occupied(&self, (x, y): (usize, usize)) -> bool {
@@ -105,6 +97,9 @@ impl Input {
         self.grid = new_grid;
         self.width = new_width;
         self.height = new_height;
+
+        self.elves.clear();
+        self.locate_elves();
     }
 
     fn grow_if_perimeter_occupied(&mut self) {
@@ -142,38 +137,52 @@ impl Input {
         }
     }
 
+    fn locate_elves(&mut self) {
+        if !self.elves.is_empty() {
+            return;
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if matches!(self.get((x, y)), Some(&Tile::Elf)) {
+                    self.elves.push((x, y));
+                }
+            }
+        }
+    }
+
+    fn move_elf(&mut self, idx: usize, to: (usize, usize)) {
+        *self.get_mut(to).unwrap() = Tile::Elf;
+        *self.get_mut(self.elves[idx]).unwrap() = Tile::Empty;
+        self.elves[idx] = to;
+    }
+
     fn execute_round(&mut self) -> bool {
         self.grow_if_perimeter_occupied();
+        self.locate_elves();
 
         #[cfg(debug_assertions)]
         dbg!(&self);
 
-        self.target_states = vec![TargetState::Available; self.grid.len()];
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                if self.occupied((x, y)) {
-                    if let Some(diff) = self.candidate_move((x, y)) {
-                        let (dx, dy) = diff[0];
-                        let target = (x.wrapping_add_signed(dx), y.wrapping_add_signed(dy));
-                        let target_state = self.get_target_mut(target).unwrap();
-                        match target_state {
-                            TargetState::Available => *target_state = TargetState::Targeted((x, y)),
-                            TargetState::Targeted(_) => *target_state = TargetState::Overtargeted,
-                            TargetState::Overtargeted => {}
-                        }
-                    }
-                }
+        let mut targets = Vec::with_capacity(self.elves.len());
+        for (idx, &(x, y)) in self.elves.iter().enumerate() {
+            if let Some(diff) = self.candidate_move((x, y)) {
+                let (dx, dy) = diff[0];
+                let target = (x.wrapping_add_signed(dx), y.wrapping_add_signed(dy));
+                targets.push((target, idx));
             }
         }
 
         let mut moved = false;
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let to = (x, y);
-                if let Some(TargetState::Targeted(from)) = self.get_target(to).cloned() {
-                    *self.get_mut(to).unwrap() = Tile::Elf;
-                    *self.get_mut(from).unwrap() = Tile::Empty;
+        for (_, mut group) in &targets
+            .iter()
+            .sorted_by_key(|(target, _)| *target)
+            .group_by(|(target, _)| *target)
+        {
+            if let Some(&(to, idx)) = group.next() {
+                // only move there if nothing else targeted it
+                if group.next().is_none() {
+                    self.move_elf(idx, to);
                     moved = true;
                 }
             }
