@@ -1,12 +1,9 @@
-use std::{
-    cmp::Reverse,
-    collections::BinaryHeap,
-    fmt::{Debug, Write},
-    iter::repeat,
-};
+use std::{cmp::Reverse, collections::BinaryHeap};
 
-use itertools::{izip, Itertools};
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
+
+type Bits = u128;
 
 #[derive(Clone, Hash, PartialEq, PartialOrd, Eq, Ord)]
 pub struct Input {
@@ -14,11 +11,10 @@ pub struct Input {
     goal: (isize, isize),
     width: isize,
     height: isize,
-    // TODO optimise this by merging into one vector
-    north: Vec<u128>,
-    south: Vec<u128>,
-    east: Vec<u128>,
-    west: Vec<u128>,
+    north: Vec<Bits>,
+    south: Vec<Bits>,
+    east: Vec<Bits>,
+    west: Vec<Bits>,
 }
 
 #[aoc_generator(day24)]
@@ -47,7 +43,7 @@ pub fn input_generator(input: &str) -> Input {
             .skip(1)
             .take(width)
             .enumerate()
-            .map(|(i, b)| (1u128 << i, b))
+            .map(|(i, b)| (1 << i, b))
             .for_each(|(bit, b)| match b {
                 b'^' => n |= bit,
                 b'>' => e |= bit,
@@ -78,160 +74,132 @@ pub fn input_generator(input: &str) -> Input {
     }
 }
 
-fn rotate_north_winds(winds: &mut [u128]) {
-    winds.rotate_left(1);
-}
-
-fn rotate_south_winds(winds: &mut [u128]) {
-    winds.rotate_right(1);
-}
-
-fn rotate_east_winds(winds: &mut [u128], width: isize) {
-    winds.iter_mut().for_each(|x| {
-        *x = (*x << 1) | ((*x >> (width - 1)) & 1);
-        // isn't actually necessary
-        *x &= !(1 << width);
-    });
-}
-
-fn rotate_west_winds(winds: &mut [u128], width: isize) {
-    winds.iter_mut().for_each(|x| {
-        *x = (*x >> 1) | ((*x & 1) << (width - 1));
-    });
-}
-
 impl Input {
-    fn step(&self) -> Self {
-        let mut out = self.clone();
-        rotate_north_winds(&mut out.north);
-        rotate_south_winds(&mut out.south);
-        rotate_east_winds(&mut out.east, self.width);
-        rotate_west_winds(&mut out.west, self.width);
-        out
-    }
-
-    fn available(&self, pos: (isize, isize)) -> bool {
-        if (pos == self.start) || (pos == self.goal) {
-            return true;
-        }
-        if pos.0 < 0 || pos.0 >= self.width || pos.1 < 0 || pos.1 >= self.height {
-            return false;
-        }
-
-        let idx = pos.1 as usize;
-        let bit = 1 << (pos.0 as usize);
-        ((self.north[idx] & bit)
-            | (self.east[idx] & bit)
-            | (self.south[idx] & bit)
-            | (self.west[idx] & bit))
-            == 0
+    fn in_range(&self, pos: (isize, isize)) -> bool {
+        pos.0 >= 0 && pos.0 < self.width && pos.1 >= 0 && pos.1 < self.height
     }
 }
 
 #[derive(Clone, Hash, PartialEq, PartialOrd, Eq, Ord)]
 struct State {
-    input: Input,
     pos: (isize, isize),
+    elapsed: usize,
 }
 
-impl Debug for State {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let input = &self.input;
+fn rotate_east_wind(x: Bits, step: isize, width: isize) -> Bits {
+    let mut out = x << step;
+    out |= x >> (width - step);
 
-        let wall = |p: usize| {
-            let mut s = String::new();
-            s.push('#');
-            s.extend(repeat('#').take(p));
-            s.push('.');
-            s.extend(repeat('#').take((input.width as usize) - p - 1));
-            s.push('\n');
-            s
-        };
+    // we could skip masking the result of this shift because our garbage is
+    // being rotated AWAY FROM the important bits, but it's easier to test this way
+    // and doesn't make much of a difference to the performance
+    out &= Bits::MAX >> (Bits::BITS as isize - width);
 
-        f.write_char('\n')?;
-        f.write_str(&wall(input.start.0 as usize))?;
+    out
+}
 
-        for (y, (n, s, e, w)) in
-            izip!(&input.north, &input.south, &input.east, &input.west).enumerate()
-        {
-            f.write_char('#')?;
+fn rotate_west_wind(x: Bits, step: isize, width: isize) -> Bits {
+    let mut out = x >> step;
+    out |= x << (width - step);
 
-            for x in 0..input.width {
-                if (x, y as isize) == self.pos {
-                    f.write_char('E')?;
-                    continue;
-                }
+    // we can't skip masking the result of this shift because our garbage is
+    // being rotated TOWARDS the important bits
+    out &= Bits::MAX >> (Bits::BITS as isize - width);
 
-                let mut ch = '.';
-                let mask = 1u128 << x;
-
-                let bits = [n & mask, e & mask, s & mask, w & mask];
-                let chars = ['^', '>', 'v', '<'];
-                let mut count = 0;
-                bits.iter()
-                    .zip(chars)
-                    .filter(|(b, _)| **b != 0)
-                    .for_each(|(_, c)| {
-                        ch = c;
-                        count += 1
-                    });
-
-                if count > 1 {
-                    f.write_fmt(format_args!("{count}"))?;
-                } else {
-                    f.write_char(ch)?;
-                }
-            }
-
-            f.write_str("#\n")?;
-        }
-
-        f.write_str(&wall(input.goal.0 as usize))
-    }
+    out
 }
 
 impl State {
-    fn heuristic(&self) -> usize {
-        self.input.goal.1.abs_diff(self.pos.1) + self.input.goal.0.abs_diff(self.pos.0)
+    fn heuristic(&self, goal: (isize, isize)) -> usize {
+        goal.1.abs_diff(self.pos.1) + goal.0.abs_diff(self.pos.0)
     }
 
-    fn neighbours(&self) -> [Option<State>; 5] {
-        let next_input = self.input.step();
+    fn rotate_or_ones<F>(&self, input: &Input, f: F, bits: &[Bits], y: isize, step: isize) -> Bits
+    where
+        F: Fn(Bits, isize, isize) -> Bits,
+    {
+        if y >= 0 && y < input.height {
+            if let Some(x) = bits.get(y as usize) {
+                return f(*x, step, input.width);
+            }
+        }
+        Bits::MAX
+    }
 
-        #[cfg(debug_assertions)]
-        dbg!(&self);
+    fn neighbours(&self, input: &Input) -> [Option<State>; 5] {
+        let rotation = self.elapsed as isize + 1;
 
-        [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)]
-            .map(|(dx, dy)| (self.pos.0 + dx, self.pos.1 + dy))
-            .map(|pos| {
-                // TODO inline the available function and reuse the masked bitmaps
-                if next_input.available(pos) {
-                    Some(State {
-                        input: next_input.clone(),
-                        pos,
-                    })
-                } else {
-                    None
-                }
-            })
+        let len = input.north.len() as isize;
+
+        let new_ys = [-1, 0, 1].map(|dy| self.pos.1 + dy);
+
+        let north_bitmaps_by_dy = new_ys.map(|y| {
+            if y < 0 || y >= input.height {
+                Bits::MAX
+            } else {
+                input.north[(y + rotation).rem_euclid(len) as usize]
+            }
+        });
+
+        let len = input.south.len() as isize;
+        let south_bitmaps_by_dy = new_ys.map(|y| {
+            if y < 0 || y >= input.height {
+                Bits::MAX
+            } else {
+                input.south[(y - rotation).rem_euclid(len) as usize]
+            }
+        });
+
+        let hor_rotation = rotation % input.width;
+        let east_bitmaps_by_dy = new_ys
+            .map(|y| self.rotate_or_ones(input, rotate_east_wind, &input.east, y, hor_rotation));
+        let west_bitmaps_by_dy = new_ys
+            .map(|y| self.rotate_or_ones(input, rotate_west_wind, &input.west, y, hor_rotation));
+
+        [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)].map(|(dx, dy)| {
+            let pos = (self.pos.0 + dx, self.pos.1 + dy);
+
+            let mut available = false;
+            if (pos == input.start) || (pos == input.goal) {
+                available = true;
+            } else if input.in_range(pos) {
+                let dy_idx = (dy + 1) as usize;
+                let n = north_bitmaps_by_dy[dy_idx];
+                let e = east_bitmaps_by_dy[dy_idx];
+                let s = south_bitmaps_by_dy[dy_idx];
+                let w = west_bitmaps_by_dy[dy_idx];
+
+                let bit = 1 << pos.0;
+                available = ((n & bit) | (e & bit) | (s & bit) | (w & bit)) == 0;
+            }
+
+            if available {
+                Some(State {
+                    pos,
+                    elapsed: self.elapsed + 1,
+                })
+            } else {
+                None
+            }
+        })
     }
 }
 
-fn astar_min_cost(start: State) -> Option<(usize, State)> {
+fn astar_min_cost(start: State, input: &Input) -> Option<usize> {
     let mut min_costs = FxHashMap::default();
     let mut min_heap = BinaryHeap::new();
-    min_heap.push((Reverse(start.heuristic()), start, 0));
+    min_heap.push((Reverse(start.heuristic(input.goal)), start, 0));
 
     loop {
         let (_, next, cost) = min_heap.pop()?;
-        if next.pos == next.input.goal {
-            return Some((cost, next));
+        if next.pos == input.goal {
+            return Some(cost);
         }
-        let n_cost = cost + 1;
-        for n_state in next.neighbours().into_iter().flatten() {
+        for n_state in next.neighbours(input).into_iter().flatten() {
+            let n_cost = n_state.elapsed;
             if n_cost < *min_costs.get(&n_state).unwrap_or(&usize::MAX) {
                 min_heap.push((
-                    Reverse(n_cost + n_state.heuristic()),
+                    Reverse(n_cost + n_state.heuristic(input.goal)),
                     n_state.clone(),
                     n_cost,
                 ));
@@ -240,37 +208,30 @@ fn astar_min_cost(start: State) -> Option<(usize, State)> {
         }
     }
 }
-fn init_state(input: &Input) -> State {
+fn init_state(input: &Input, elapsed: usize) -> State {
     State {
-        input: input.clone(),
         pos: input.start,
+        elapsed,
     }
 }
 
 #[aoc(day24, part1)]
 pub fn part_1(input: &Input) -> usize {
-    astar_min_cost(init_state(input)).unwrap().0
+    astar_min_cost(init_state(input, 0), input).unwrap()
 }
 
 #[aoc(day24, part2)]
 pub fn part_2(input: &Input) -> usize {
-    let (cost1, state) = astar_min_cost(init_state(input)).unwrap();
+    let cost = astar_min_cost(init_state(input, 0), input).unwrap();
 
-    let input = &Input {
-        start: state.input.goal,
-        goal: state.input.start,
-        ..state.input
+    let reverse_input = &Input {
+        start: input.goal,
+        goal: input.start,
+        ..input.clone()
     };
-    let (cost2, state) = astar_min_cost(init_state(input)).unwrap();
+    let cost = astar_min_cost(init_state(reverse_input, cost), reverse_input).unwrap();
 
-    let input = &Input {
-        start: state.input.goal,
-        goal: state.input.start,
-        ..state.input
-    };
-    let (cost3, _state) = astar_min_cost(init_state(input)).unwrap();
-
-    cost1 + cost2 + cost3
+    astar_min_cost(init_state(input, cost), input).unwrap()
 }
 
 #[cfg(test)]
@@ -294,7 +255,7 @@ mod tests {
         assert_eq!(part_2(&input), 54);
     }
 
-    fn cmp(a: u128, b: u128) {
+    fn cmp(a: Bits, b: Bits) {
         if a != b {
             eprintln!("left:  {:0128b}", a);
             eprintln!("right: {:0128b}", b);
@@ -305,27 +266,16 @@ mod tests {
     #[test]
     fn test_wrapping() {
         const WIDTH: isize = 5;
-        let mut winds = [0b10100u128];
 
-        rotate_west_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b01010u128);
+        cmp(rotate_west_wind(0b10100, 1, WIDTH), 0b01010);
+        cmp(rotate_west_wind(0b01010, 1, WIDTH), 0b00101);
+        cmp(rotate_west_wind(0b00101, 1, WIDTH), 0b10010);
+        cmp(rotate_west_wind(0b00101, 2, WIDTH), 0b01001);
 
-        rotate_west_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b00101u128);
-
-        rotate_west_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b10010u128);
-
-        rotate_east_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b00101u128);
-
-        rotate_east_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b01010u128);
-
-        rotate_east_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b10100u128);
-
-        rotate_east_winds(&mut winds, WIDTH);
-        cmp(winds[0], 0b01001u128);
+        cmp(rotate_east_wind(0b10010, 1, WIDTH), 0b00101);
+        cmp(rotate_east_wind(0b00101, 1, WIDTH), 0b01010);
+        cmp(rotate_east_wind(0b01010, 1, WIDTH), 0b10100);
+        cmp(rotate_east_wind(0b10100, 1, WIDTH), 0b01001);
+        cmp(rotate_east_wind(0b10100, 2, WIDTH), 0b10010);
     }
 }
