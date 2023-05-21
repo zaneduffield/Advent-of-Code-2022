@@ -66,6 +66,7 @@ pub fn main() {
     run_day_with_generator!(day_21, "21");
     run_day_with_generator!(day_22, "22");
     run_day_with_generator!(day_23, "23");
+    run_day_with_generator!(day_24, "24");
 
     println!("done in {:?}", instant.elapsed());
 }
