@@ -2,6 +2,14 @@ use std::time::Instant;
 
 use advent_of_code_2022::*;
 
+#[cfg(feature = "io")]
+macro_rules! input_str {
+    ($d:expr) => {
+        std::fs::read_to_string(concat!("input/2022/day", $d, ".txt")).unwrap()
+    };
+}
+
+#[cfg(not(feature = "io"))]
 macro_rules! input_str {
     ($d:expr) => {
         include_str!(concat!("../../input/2022/day", $d, ".txt"))
@@ -9,35 +17,30 @@ macro_rules! input_str {
 }
 
 macro_rules! run_parts {
-    ($m:ident, $d:expr, $i:expr, $suffix:expr) => {
+    ($m:ident, $d:expr, $g:expr) => {
         let instant = Instant::now();
+        let input = input_str!($d);
+        let processed_input = $g(&input);
         println!(
             "day {}\n  part 1: {}\n  part 2: {}",
             $d,
-            $m::part_1($i),
-            $m::part_2($i)
+            $m::part_1(&processed_input),
+            $m::part_2(&processed_input)
         );
 
-        println!("parts completed in {:?}{}\n", instant.elapsed(), $suffix);
+        println!("parts completed in {:?}\n", instant.elapsed());
     };
 }
 
 macro_rules! run_day_with_generator {
     ($m:ident, $d:expr) => {
-        let instant = Instant::now();
-        let processed_input = $m::input_generator(input_str!($d));
-        run_parts!(
-            $m,
-            $d,
-            &processed_input,
-            format!(" ({:?} including generator)", instant.elapsed())
-        );
+        run_parts!($m, $d, |i| $m::input_generator(i));
     };
 }
 
 macro_rules! run_day {
     ($m:ident, $d:expr) => {
-        run_parts!($m, $d, input_str!($d), "");
+        run_parts!($m, $d, |i| i);
     };
 }
 
