@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use std::fmt::{Debug, Write};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -26,6 +25,7 @@ const INIT_DIFFS: [Step; 4] = [
 #[derive(Clone)]
 pub struct Input {
     grid: Vec<Tile>,
+    target_grid: Vec<u8>,
     elves: Vec<(usize, usize)>,
     width: usize,
     height: usize,
@@ -54,6 +54,7 @@ impl Input {
         Input {
             grid,
             elves: vec![],
+            target_grid: vec![],
             width,
             height,
             diffs: INIT_DIFFS,
@@ -98,6 +99,8 @@ impl Input {
         self.width = new_width;
         self.height = new_height;
 
+        self.target_grid = vec![0; self.grid.len()];
+
         self.elves.clear();
         self.locate_elves();
     }
@@ -114,7 +117,7 @@ impl Input {
         }
     }
 
-    fn candidate_move(&self, pos: (usize, usize)) -> Option<[(isize, isize); 3]> {
+    fn candidate_move(&self, pos: (usize, usize)) -> Option<(isize, isize)> {
         let mut mov = None;
         let mut bad_move_found = false;
         for d in self.diffs {
@@ -124,7 +127,7 @@ impl Input {
                     pos.1.wrapping_add_signed(*dy),
                 ))
             }) {
-                mov = mov.or(Some(d))
+                mov = mov.or(Some(d[0]))
             } else {
                 bad_move_found = true;
             }
@@ -164,28 +167,28 @@ impl Input {
         #[cfg(debug_assertions)]
         dbg!(&self);
 
-        let mut targets = Vec::with_capacity(self.elves.len());
+        let mut targets = vec![];
         for (idx, &(x, y)) in self.elves.iter().enumerate() {
             if let Some(diff) = self.candidate_move((x, y)) {
-                let (dx, dy) = diff[0];
+                let (dx, dy) = diff;
                 let target = (x.wrapping_add_signed(dx), y.wrapping_add_signed(dy));
-                targets.push((target, idx));
+                let tidx = self.idx(target.0, target.1);
+                targets.push((tidx, target, idx));
+
+                self.target_grid[tidx] += 1;
             }
         }
 
         let mut moved = false;
-        for (_, mut group) in &targets
-            .iter()
-            .sorted_by_key(|(target, _)| *target)
-            .group_by(|(target, _)| *target)
-        {
-            if let Some(&(to, idx)) = group.next() {
-                // only move there if nothing else targeted it
-                if group.next().is_none() {
-                    self.move_elf(idx, to);
-                    moved = true;
-                }
+        for (tidx, target, idx) in targets.iter() {
+            if self.target_grid[*tidx] == 1 {
+                self.move_elf(*idx, *target);
+                moved = true;
             }
+        }
+
+        for (tidx, ..) in targets.iter() {
+            self.target_grid[*tidx] = 0;
         }
 
         self.diffs.rotate_left(1);
