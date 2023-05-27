@@ -42,7 +42,7 @@ impl Step {
         };
 
         for _ in 0..self.count {
-            let mut head = snake.first_mut().unwrap();
+            let head = snake.first_mut().unwrap();
             head.0 += dx;
             head.1 += dy;
 
@@ -50,7 +50,7 @@ impl Step {
             // not possible with standard iterators.
             for i in 1..snake.len() {
                 let head = snake[i - 1];
-                let mut tail = &mut snake[i];
+                let tail = &mut snake[i];
                 let diff = (head.0 - tail.0, head.1 - tail.1);
                 if diff.0.abs() > 1 || diff.1.abs() > 1 {
                     tail.0 += diff.0.signum();
