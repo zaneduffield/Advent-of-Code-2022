@@ -61,6 +61,8 @@ struct Cave<'a> {
     blocks: Vec<Block>,
     width: isize,
     height: isize,
+    visited: FxHashSet<(isize, isize)>,
+    queue: VecDeque<(isize, isize)>,
 }
 
 impl<'a> Cave<'a> {
@@ -71,6 +73,8 @@ impl<'a> Cave<'a> {
             blocks: vec![],
             width: WIDTH as isize,
             height: 0,
+            visited: FxHashSet::default(),
+            queue: VecDeque::default(),
         }
     }
 
@@ -145,15 +149,24 @@ impl<'a> Cave<'a> {
         self.place_at(shape, pos);
     }
 
-    fn hash_rock_state(&self) -> u64 {
+    fn hash_rock_state_fast(&mut self) -> u64 {
         let mut hash_state = FxHasher::default();
-        let mut visited = FxHashSet::default();
+        // while this isn't completely correct, it works well enough and its much faster than the flood-fill approach.
+        self.blocks[self.blocks.len().saturating_sub(100)..].hash(&mut hash_state);
+        hash_state.finish()
+    }
 
-        let mut queue = VecDeque::new();
-        queue.push_back((0, self.height));
+    #[allow(unused)]
+    fn hash_rock_state(&mut self) -> u64 {
+        let mut hash_state = FxHasher::default();
 
-        while let Some(pos) = queue.pop_front() {
-            if !visited.insert(pos) {
+        self.visited.clear();
+
+        self.queue.clear();
+        self.queue.push_back((0, self.height));
+
+        while let Some(pos) = self.queue.pop_front() {
+            if !self.visited.insert(pos) {
                 continue;
             }
 
@@ -161,7 +174,7 @@ impl<'a> Cave<'a> {
             for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
                 let nb = (pos.0 + dx, pos.1 + dy);
                 if self.get(nb) == Block::Empty {
-                    queue.push_back(nb);
+                    self.queue.push_back(nb);
                 }
             }
         }
@@ -183,7 +196,7 @@ fn solve(input: &Input, shapes_to_fall: usize) -> usize {
 
         heights.push(cave.height);
 
-        let current_state = (cave.hash_rock_state(), cave.wind_idx, shape_idx);
+        let current_state = (cave.hash_rock_state_fast(), cave.wind_idx, shape_idx);
         if let Some(last_shape_num) = shape_num_by_state.insert(current_state, shape_num) {
             // Bingo! Now we can just repeat the cycle.
             let remaining_shapes = shapes_to_fall - shape_num;
