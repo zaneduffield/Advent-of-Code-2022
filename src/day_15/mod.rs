@@ -4,7 +4,7 @@ use regex::Regex;
 
 pub struct Sensor {
     pos: (i32, i32),
-    dist: u32,
+    dist: i32,
 }
 
 pub struct Input {
@@ -37,17 +37,17 @@ pub fn input_generator(input: &str) -> Input {
 }
 
 #[inline(always)]
-fn hamming_dist(p1: (i32, i32), p2: (i32, i32)) -> u32 {
-    p1.0.abs_diff(p2.0) + p1.1.abs_diff(p2.1)
+fn hamming_dist(p1: (i32, i32), p2: (i32, i32)) -> i32 {
+    (p1.0 - p2.0).abs() + (p1.1 - p2.1).abs()
 }
 
 fn non_beacons_for_row(sensors: &[Sensor], row: i32) -> IntRangeUnionFind<i32> {
     sensors
         .iter()
         .filter_map(|s| {
-            let dist_to_row = s.pos.1.abs_diff(row);
+            let dist_to_row = (s.pos.1 - row).abs();
             if dist_to_row <= s.dist {
-                let excess_dist = (s.dist - dist_to_row) as i32;
+                let excess_dist = s.dist - dist_to_row;
                 Some(s.pos.0 - excess_dist..=s.pos.0 + excess_dist)
             } else {
                 None
@@ -88,7 +88,7 @@ pub fn _part_2(input: &Input, max_coord: i32) -> u64 {
                 {
                     None => return Some(4_000_000 * pos.0 as u64 + pos.1 as u64),
                     Some(s) => {
-                        col = s.pos.0 + (s.dist - pos.1.abs_diff(s.pos.1)) as i32 + 1;
+                        col = s.pos.0 + s.dist - (pos.1 - s.pos.1).abs() + 1;
                     }
                 }
             }
