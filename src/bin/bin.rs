@@ -22,13 +22,13 @@ macro_rules! run_parts {
         let input = input_str!($d);
         let processed_input = $g(&input);
         println!(
-            "day {}\n  part 1: {}\n  part 2: {}",
+            "day {0}-1: {1}\nday {0}-2: {2}",
             $d,
             $m::part_1(&processed_input),
             $m::part_2(&processed_input)
         );
 
-        println!("parts completed in {:?}\n", instant.elapsed());
+        println!("{:?}\n", instant.elapsed());
     };
 }
 
